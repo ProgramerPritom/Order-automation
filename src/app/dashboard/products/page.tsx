@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import PaginationControl from '@/components/ui/PaginationControl';
+import { getSessionToken } from '@/lib/session';
 import {
   Package,
   Plus,
@@ -40,20 +42,38 @@ export default function ProductsPage() {
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 15;
+
   useEffect(() => {
-    fetchProducts();
+    fetchProducts(null, 1);
   }, []);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (cursorParam?: string | null, targetPage: number = 1) => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch('/api/products', {
+      const token = getSessionToken();
+      let url = `/api/products?limit=${pageSize}`;
+      if (search) url += `&q=${encodeURIComponent(search)}`;
+      if (cursorParam) url += `&cursor=${encodeURIComponent(cursorParam)}`;
+
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (data.products) {
         setProducts(data.products);
+        if (data.pagination) {
+          setNextCursor(data.pagination.nextCursor);
+          setHasMore(data.pagination.hasMore);
+          setTotalCount(data.pagination.totalCount || 0);
+        }
+        setCurrentPage(targetPage);
       } else {
         setProducts([]);
       }
@@ -62,6 +82,19 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleNextPage = () => {
+    if (!nextCursor || loading) return;
+    setCursorStack((prev) => [...prev, nextCursor]);
+    fetchProducts(nextCursor, currentPage + 1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage <= 1 || loading) return;
+    const prevCursor = cursorStack[currentPage - 2] || null;
+    setCursorStack((prev) => prev.slice(0, currentPage - 1));
+    fetchProducts(prevCursor, currentPage - 1);
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -97,6 +130,24 @@ export default function ProductsPage() {
     }
   };
 
+  const handleDeleteProduct = async (id: string) => {
+    if (!confirm('আপনি কি নিশ্চিত যে এই পণ্যটি মুছে ফেলতে চান? এটি এআই ক্যাটালগ ও ক্যাশ থেকেও মুছে যাবে।')) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(`/api/products?id=${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setProducts((prev) => prev.filter((p) => p.id !== id));
+      }
+    } catch (e) {
+      console.error('Delete product error:', e);
+    }
+  };
+
   const filteredProducts = products.filter(
     (p) =>
       p.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -105,7 +156,7 @@ export default function ProductsPage() {
   );
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full">
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -165,6 +216,7 @@ export default function ProductsPage() {
                 <th className="py-3.5 px-6">মূল্য</th>
                 <th className="py-3.5 px-6">স্টক লেভেল</th>
                 <th className="py-3.5 px-6">RAG ভেক্টর স্ট্যাটাস</th>
+                <th className="py-3.5 px-6 text-right">অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -207,11 +259,20 @@ export default function ProductsPage() {
                       <span>pgvector Synced</span>
                     </span>
                   </td>
+                  <td className="py-4 px-6 text-right">
+                    <button
+                      onClick={() => handleDeleteProduct(product.id)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      title="পণ্যটি মুছে ফেলুন (ক্যাশ সিঙ্ক হবে)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {products.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-500 text-xs">
+                  <td colSpan={7} className="py-12 text-center text-slate-500 text-xs">
                     <p className="font-bold text-slate-700 text-sm">কোনো পণ্য পাওয়া যায়নি</p>
                     <p className="text-slate-400 mt-1">উপরে "+ নতুন পণ্য যুক্ত করুন" বাটনে ক্লিক করে পণ্য ক্যাটালগ শুরু করুন।</p>
                   </td>
@@ -220,6 +281,18 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Cursor Pagination Controls */}
+        <PaginationControl
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          hasMore={hasMore}
+          onNextPage={handleNextPage}
+          onPrevPage={handlePrevPage}
+          loading={loading}
+          itemLabel="পণ্য"
+        />
       </div>
 
       {/* Add Product Modal */}

@@ -6,7 +6,14 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const refreshToken = req.cookies.get('refresh_token')?.value;
+    const body = await req.json().catch(() => ({}));
+    const authHeader = req.headers.get('authorization');
+    const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+    const refreshToken =
+      req.cookies.get('refresh_token')?.value ||
+      body.refreshToken ||
+      (headerToken && headerToken !== 'null' ? headerToken : null);
 
     if (!refreshToken) {
       return NextResponse.json(
@@ -15,28 +22,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
-    const userId = body.userId;
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required for token rotation' },
-        { status: 400 }
-      );
-    }
-
-    const newRefreshToken = await rotateRefreshToken(userId, refreshToken);
-    if (!newRefreshToken) {
+    const rotated = await rotateRefreshToken(refreshToken, body.userId);
+    if (!rotated) {
       return NextResponse.json(
         { error: 'Invalid or expired refresh token' },
         { status: 401 }
       );
     }
 
-    // Fetch user details for new access token
+    // Fetch user and tenant details for new session
     const res = await query(
-      `SELECT id, tenant_id, email, role FROM users WHERE id = $1;`,
-      [userId]
+      `SELECT u.id, u.tenant_id, u.name, u.email, u.phone, u.role,
+              t.name as tenant_name, t.slug as tenant_slug, t.plan as tenant_plan
+       FROM users u
+       LEFT JOIN tenants t ON u.tenant_id = t.id
+       WHERE u.id = $1;`,
+      [rotated.userId]
     );
 
     if (res.rows.length === 0) {
@@ -48,19 +49,54 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       tenantId: user.tenant_id,
       email: user.email,
+      phone: user.phone,
       role: user.role,
     });
 
     const response = NextResponse.json({
       success: true,
       accessToken: newAccessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+      },
+      tenant: {
+        id: user.tenant_id,
+        name: user.tenant_name,
+        slug: user.tenant_slug,
+        plan: user.tenant_plan,
+      },
     });
 
-    response.cookies.set('refresh_token', newRefreshToken, {
+    const thirtyDays = 30 * 24 * 60 * 60;
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Refresh client-accessible session tokens
+    response.cookies.set('accessToken', newAccessToken, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: thirtyDays,
+      path: '/',
+    });
+
+    response.cookies.set('token', newAccessToken, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: thirtyDays,
+      path: '/',
+    });
+
+    // Refresh HttpOnly rotating refresh token
+    response.cookies.set('refresh_token', rotated.newRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: thirtyDays,
       path: '/',
     });
 

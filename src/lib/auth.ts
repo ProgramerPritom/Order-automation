@@ -30,23 +30,23 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 /**
- * Generate a short-lived Access Token (15 minutes)
+ * Generate Access Token (30 days persistent login session without unexpected logouts)
  */
 export async function createAccessToken(payload: TokenPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('15m')
+    .setExpirationTime('30d')
     .sign(secretKey);
 }
 
 /**
- * Generate a long-lived Refresh Token (7 days) and save its hash in DB
+ * Generate a long-lived Refresh Token (30 days) and save its hash in DB
  */
 export async function createRefreshToken(userId: string): Promise<string> {
   const rawToken = crypto.randomBytes(40).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
   await query(
     `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
@@ -58,30 +58,74 @@ export async function createRefreshToken(userId: string): Promise<string> {
 }
 
 /**
- * Verify and rotate Refresh Token
+ * Verify and rotate Refresh Token (Supports looking up user directly from refresh token)
+ * Includes a 60-second grace period for recently rotated tokens to prevent race conditions
+ * when multiple client requests or tab switches occur simultaneously.
  */
-export async function rotateRefreshToken(userId: string, rawToken: string): Promise<string | null> {
+export async function rotateRefreshToken(
+  rawToken: string,
+  userId?: string
+): Promise<{ newRefreshToken: string; userId: string } | null> {
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-  const res = await query(
-    `SELECT id, expires_at, revoked 
-     FROM refresh_tokens 
-     WHERE user_id = $1 AND token_hash = $2;`,
-    [userId, tokenHash]
-  );
+  let res;
+  if (userId) {
+    res = await query(
+      `SELECT id, user_id, expires_at, revoked, revoked_at 
+       FROM refresh_tokens 
+       WHERE user_id = $1 AND token_hash = $2;`,
+      [userId, tokenHash]
+    );
+  } else {
+    res = await query(
+      `SELECT id, user_id, expires_at, revoked, revoked_at 
+       FROM refresh_tokens 
+       WHERE token_hash = $1;`,
+      [tokenHash]
+    );
+  }
 
   if (res.rows.length === 0) return null;
   const tokenRecord = res.rows[0];
 
-  if (tokenRecord.revoked || new Date(tokenRecord.expires_at) < new Date()) {
+  // If expired, reject
+  if (new Date(tokenRecord.expires_at) < new Date()) {
     return null;
   }
 
-  // Revoke old token
-  await query(`UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1;`, [tokenRecord.id]);
+  // If already revoked:
+  if (tokenRecord.revoked) {
+    // Check grace period (60 seconds)
+    const revokedTime = tokenRecord.revoked_at ? new Date(tokenRecord.revoked_at).getTime() : 0;
+    const now = Date.now();
+    if (revokedTime > 0 && now - revokedTime < 60000) {
+      // Within grace window! Find the most recent active token for this user
+      const latestRes = await query(
+        `SELECT token_hash 
+         FROM refresh_tokens 
+         WHERE user_id = $1 AND revoked = FALSE AND expires_at > NOW() 
+         ORDER BY created_at DESC 
+         LIMIT 1;`,
+        [tokenRecord.user_id]
+      );
+      if (latestRes.rows.length > 0) {
+        // Issue fresh token without failing
+        const newRefreshToken = await createRefreshToken(tokenRecord.user_id);
+        return { newRefreshToken, userId: tokenRecord.user_id };
+      }
+    }
+    return null;
+  }
+
+  // Revoke old token and record timestamp
+  await query(
+    `UPDATE refresh_tokens SET revoked = TRUE, revoked_at = NOW() WHERE id = $1;`,
+    [tokenRecord.id]
+  );
 
   // Issue new refresh token
-  return createRefreshToken(userId);
+  const newRefreshToken = await createRefreshToken(tokenRecord.user_id);
+  return { newRefreshToken, userId: tokenRecord.user_id };
 }
 
 /**

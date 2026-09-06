@@ -46,6 +46,22 @@ export const saasRedis = {
     return rawRedis.expire(this.prefixKey(key), seconds);
   },
 
+  async lpush(key: string, ...elements: any[]): Promise<number> {
+    return rawRedis.lpush(this.prefixKey(key), ...elements);
+  },
+
+  async rpop<T = any>(key: string): Promise<T | null> {
+    return rawRedis.rpop<T>(this.prefixKey(key));
+  },
+
+  async llen(key: string): Promise<number> {
+    return rawRedis.llen(this.prefixKey(key));
+  },
+
+  async lrange<T = any>(key: string, start: number, stop: number): Promise<T[]> {
+    return rawRedis.lrange<T>(this.prefixKey(key), start, stop);
+  },
+
   async ping(): Promise<string> {
     return rawRedis.ping();
   },

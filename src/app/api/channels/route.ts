@@ -4,11 +4,15 @@ import { verifyAccessToken } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-// Helper to extract tenant from request
+// Helper to extract tenant from request (supports Authorization header & cookies)
 async function getAuthTenant(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
+  const token =
+    (authHeader?.startsWith('Bearer ') && authHeader.split(' ')[1] !== 'null')
+      ? authHeader.split(' ')[1]
+      : req.cookies.get('accessToken')?.value || req.cookies.get('token')?.value;
+
+  if (!token) return null;
   return verifyAccessToken(token);
 }
 

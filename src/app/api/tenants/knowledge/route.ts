@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { saasRedis } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +98,9 @@ export async function PUT(req: NextRequest) {
         payload.tenantId,
       ]
     );
+
+    // Invalidate Redis shop knowledge cache so next AI reply immediately uses updated policies
+    await saasRedis.del(`shop:${payload.tenantId}`);
 
     return NextResponse.json({
       success: true,

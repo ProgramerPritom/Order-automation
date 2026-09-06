@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import PaginationControl from '@/components/ui/PaginationControl';
+import { getSessionToken } from '@/lib/session';
 import {
   ShoppingBag,
   Filter,
@@ -90,16 +92,27 @@ export default function OrdersPage() {
   // Quick action feedback
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 15;
+
   useEffect(() => {
-    fetchOrders();
+    // Reset pagination on filter change
+    setCurrentPage(1);
+    setCursorStack([null]);
+    fetchOrders(null, 1);
   }, [statusFilter]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (cursorParam?: string | null, targetPage: number = 1) => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('accessToken');
-      let url = `/api/orders?status=${statusFilter}`;
+      const token = getSessionToken();
+      let url = `/api/orders?status=${statusFilter}&limit=${pageSize}`;
       if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+      if (cursorParam) url += `&cursor=${encodeURIComponent(cursorParam)}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -108,12 +121,31 @@ export default function OrdersPage() {
       if (data.orders) {
         setOrders(data.orders);
         if (data.metrics) setMetrics(data.metrics);
+        if (data.pagination) {
+          setNextCursor(data.pagination.nextCursor);
+          setHasMore(data.pagination.hasMore);
+          setTotalCount(data.pagination.totalCount || 0);
+        }
+        setCurrentPage(targetPage);
       }
     } catch (e) {
       console.error('Fetch orders error:', e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleNextPage = () => {
+    if (!nextCursor || loading) return;
+    setCursorStack((prev) => [...prev, nextCursor]);
+    fetchOrders(nextCursor, currentPage + 1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage <= 1 || loading) return;
+    const prevCursor = cursorStack[currentPage - 2] || null;
+    setCursorStack((prev) => prev.slice(0, currentPage - 1));
+    fetchOrders(prevCursor, currentPage - 1);
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -306,7 +338,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full pb-12">
       
       {/* Toast Notification */}
       {actionNotice && (
@@ -398,7 +430,7 @@ export default function OrdersPage() {
           </select>
 
           <button
-            onClick={fetchOrders}
+            onClick={() => fetchOrders()}
             className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
             title="রিফ্রেশ করুন"
           >
@@ -614,6 +646,18 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Cursor Pagination Controls */}
+        <PaginationControl
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          hasMore={hasMore}
+          onNextPage={handleNextPage}
+          onPrevPage={handlePrevPage}
+          loading={loading}
+          itemLabel="অর্ডার"
+        />
       </div>
 
       {/* ORDER EDIT MODAL (Matching Screenshot 2 Perfectly) */}

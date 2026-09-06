@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
     );
 
     // 4. Fetch low stock products (stock < 10)
+    // 4. Fetch low stock products (stock < 10)
     const lowStockRes = await query(
       `SELECT title, price, stock 
        FROM products 
@@ -76,16 +77,44 @@ export async function POST(req: NextRequest) {
       [auth.tenantId]
     );
 
+    // 5. Fetch connected channels (Facebook, Instagram, WhatsApp)
+    const channelsRes = await query(
+      `SELECT platform, channel_name, channel_identifier, ai_active, webhook_verified, created_at
+       FROM channels 
+       WHERE tenant_id = $1
+       ORDER BY created_at DESC;`,
+      [auth.tenantId]
+    );
+
+    // 6. Fetch products summary
+    const prodCountRes = await query(
+      `SELECT count(*) as total_products, count(*) FILTER (WHERE stock > 0) as in_stock_count
+       FROM products 
+       WHERE tenant_id = $1 AND is_active = true;`,
+      [auth.tenantId]
+    );
+    const prodStats = prodCountRes.rows[0];
+
+    // 7. Fetch comments summary
+    const commentStatsRes = await query(
+      `SELECT count(*) as total_comments, count(*) FILTER (WHERE ai_replied = true) as ai_replied_count
+       FROM facebook_comments
+       WHERE tenant_id = $1;`,
+      [auth.tenantId]
+    );
+    const commentStats = commentStatsRes.rows[0];
+
     // Build rich live database context for Gemini
     const systemContext = `
-তুমি হলে "${store.name}" অনলাইন শপের নিজস্ব পার্সোনাল এআই বিজনেস অ্যাসিস্ট্যান্ট বা সহকারী (AI Business Copilot)। 
-তোমার কাজ হলো শপের মালিককে তার ব্যবসার রিয়েলটাইম লাইভ ডাটাবেজ থেকে নিখুঁত তথ্য দেওয়া এবং পরামর্শ দেওয়া।
+তুমি হলে "${store.name}" অনলাইন শপের নিজস্ব স্মার্ট এআই বিজনেস কো-পাইলট ও সহকারী (AI Business Copilot)। 
+তোমার কাজ হলো শপ ওনারকে তার ব্যবসার রিয়েলটাইম লাইভ ডাটাবেজ থেকে নিখুঁত তথ্য দেওয়া, প্রশ্নগুলোর উত্তর দেওয়া এবং সঠিক বিজনেস সিদ্ধান্ত নিতে সাহায্য করা।
 
 [শপের লাইভ ডাটাবেজ স্ট্যাটাস]:
 - শপের নাম: ${store.name}
-- বিজনেসের ক্যাটাগরি: ${store.business_category || 'ফ্যাশন ও ক্লথিং'}
+- বিজনেসের ধরন: ${store.business_category || 'ই-কমার্স ও রিটেল'}
+- মোট পণ্য সংখ্যা: ${prodStats?.total_products || 0} টি (ইন-স্টক: ${prodStats?.in_stock_count || 0} টি)
 - মোট অর্ডার সংখ্যা: ${stats.total_orders} টি
-- পেন্ডিং অর্ডার: ${stats.pending_count} টি (জরুরি রিভিউ প্রয়োজন)
+- পেন্ডিং অর্ডার: ${stats.pending_count} টি (রিভিউ প্রয়োজন)
 - কনফার্মড অর্ডার: ${stats.confirmed_count} টি
 - পাঠানো হয়েছে (কুরিয়ারে): ${stats.shipped_count} টি
 - সফলভাবে ডেলিভারড: ${stats.delivered_count} টি
@@ -93,18 +122,33 @@ export async function POST(req: NextRequest) {
 - ডেলিভারড বিক্রি: ৳${stats.delivered_sales}
 - মোট অর্জিত নিট লাভ: ৳${stats.delivered_profit}
 - ডেলিভারি চার্জ: ঢাকা ৳${store.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${store.delivery_outside_dhaka || 150}
+- পোস্টের মোট কমেন্ট: ${commentStats?.total_comments || 0} টি (এআই উত্তর দিয়েছে: ${commentStats?.ai_replied_count || 0} টি)
+
+[কানেক্টেড সোশ্যাল মিডিয়া চ্যানেল]:
+${
+  channelsRes.rows.length > 0
+    ? channelsRes.rows
+        .map(
+          (c) =>
+            `- [${c.platform.toUpperCase()}]: "${c.channel_name}" (ID: ${c.channel_identifier}, এআই অটো-রিপ্লাই: ${
+              c.ai_active ? 'সক্রিয় (Active)' : 'বন্ধ'
+            }, ওয়েবহুক: ${c.webhook_verified ? 'ভেরিফাইড' : 'পেন্ডিং'})`
+        )
+        .join('\n')
+    : '- বর্তমানে কোনো ফেসবুক পেজ, ইনস্টাগ্রাম বা হোয়াটসঅ্যাপ চ্যানেল কানেক্ট করা নেই।'
+}
 
 [সাম্প্রতিক অর্ডার তালিকা]:
-${recentOrdersRes.rows.map(o => `- #${o.order_number} (${o.customer_name}, ${o.customer_phone}) বিল: ৳${o.total_amount}, স্ট্যাটাস: ${o.status}`).join('\n')}
+${recentOrdersRes.rows.length > 0 ? recentOrdersRes.rows.map(o => `- #${o.order_number} (${o.customer_name}, ${o.customer_phone}) বিল: ৳${o.total_amount}, স্ট্যাটাস: ${o.status}`).join('\n') : '- এখনো কোনো অর্ডার আসেনি।'}
 
 [কম স্টকের পণ্য তালিকা (Low Stock Alerts)]:
 ${lowStockRes.rows.length > 0 ? lowStockRes.rows.map(p => `- ${p.title}: অবশিষ্ট স্টক ${p.stock} পিস (মূল্য: ৳${p.price})`).join('\n') : '- কোনো পণ্যের স্টক কম নেই, সব পর্যাপ্ত।'}
 
-[নির্দেশনা]:
-১. উত্তর সবসময় সুন্দর, বিনয়ী ও ঝরঝরে বাংলায় দাও।
-২. শপের মালিক যদি জানতে চায় আজকে কয়টা অর্ডার, পেন্ডিং কত বা লাভ কত — উপরের ডাটাবেজের সঠিক সংখ্যা উল্লেখ করে পরিষ্কার জবাব দাও।
-৩. কম স্টকের পণ্য বা পেন্ডিং অর্ডারের বিষয়ে কোনো প্রশ্ন করলে সতর্ক করো।
-৪. উত্তর সংক্ষিপ্ত, সুস্পষ্ট এবং তথ্যবহুল রাখো (অযথা বড় বাক্য পরিহার করো)।
+[গুরুত্বপূর্ণ নির্দেশিকা ও টোন]:
+১. কখনোই "প্রিয় মালিক", "হে প্রভু" বা কোনো রোবটিক, অদ্ভুত বা কৃত্রিম সম্বোধন ব্যবহার করবে না।
+২. সবসময় একজন অভিজ্ঞ, বন্ধুসুলভ, স্মার্ট বিজনেস কনসালট্যান্ট বা পার্টনারের মতো স্বাভাবিক বাংলায় কথা বলবে (যেমন: "জি ভাইয়া", "আপনার শপের বর্তমান তথ্য অনুযায়ী...", "আমি দেখতে পাচ্ছি...", ইত্যাদি)।
+৩. যদি ইউজার জানতে চায় তার ফেসবুক পেজ বা কোনো চ্যানেল কানেক্ট হয়েছে কি না, উপরের [কানেক্টেড সোশ্যাল মিডিয়া চ্যানেল] ডাটা দেখে সঠিকভাবে পেজের নাম ও স্ট্যাটাস জানাবে।
+৪. উত্তর সবসময় সুস্পষ্ট, তথ্যবহুল এবং সহজবোধ্য রাখবে। অতিরিক্ত অপ্রয়োজনীয় ভূমিকা বা অবান্তর কথা এড়িয়ে চলবে।
 `;
 
     // Call Gemini with live context

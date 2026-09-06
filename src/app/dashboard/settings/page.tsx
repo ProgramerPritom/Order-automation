@@ -151,7 +151,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* Header */}
       <div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold mb-2">

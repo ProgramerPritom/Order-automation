@@ -57,7 +57,7 @@ export async function setFaqCache(tenantId: string, rawText: string, answer: str
   const cacheKey = `faq:${tenantId}:${hash}`;
 
   try {
-    await saasRedis.set(cacheKey, answer, { ex: 7 * 24 * 60 * 60 }); // 7 days
+    await saasRedis.set(cacheKey, answer, { ex: 3600 }); // 1 hour TTL
   } catch (err) {
     console.error('Failed to set FAQ cache:', err);
   }

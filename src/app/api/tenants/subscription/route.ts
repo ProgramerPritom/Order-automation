@@ -4,17 +4,22 @@ import { checkTenantSubscription, activateMonthlyPlan } from '@/lib/subscription
 
 export const dynamic = 'force-dynamic';
 
+async function getAuthPayload(req: NextRequest) {
+  const authHeader = req.headers.get('authorization');
+  const token =
+    (authHeader?.startsWith('Bearer ') && authHeader.split(' ')[1] !== 'null')
+      ? authHeader.split(' ')[1]
+      : req.cookies.get('accessToken')?.value || req.cookies.get('token')?.value;
+
+  if (!token) return null;
+  return verifyAccessToken(token);
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized: Bearer token required' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const payload = await verifyAccessToken(token);
+    const payload = await getAuthPayload(req);
     if (!payload) {
-      return NextResponse.json({ error: 'Unauthorized: Invalid or expired token' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const subscription = await checkTenantSubscription(payload.tenantId);
@@ -27,15 +32,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized: Bearer token required' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const payload = await verifyAccessToken(token);
+    const payload = await getAuthPayload(req);
     if (!payload) {
-      return NextResponse.json({ error: 'Unauthorized: Invalid or expired token' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();

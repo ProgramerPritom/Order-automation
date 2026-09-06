@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import { getSessionToken } from '@/lib/session';
 
 export interface SubscriptionInfo {
   status: string;
@@ -33,8 +34,9 @@ export const fetchSubscription = createAsyncThunk(
     }
 
     try {
+      const activeToken = token || getSessionToken();
       const res = await fetch('/api/tenants/subscription', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch subscription');

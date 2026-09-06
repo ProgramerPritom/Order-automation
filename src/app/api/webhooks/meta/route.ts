@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { saasRedis } from '@/lib/redis';
-import { checkFaqCache } from '@/lib/faq-cache';
+import { enqueueWebhookJob } from '@/lib/message-queue';
 import { transcribeVoiceNote, identifyProductFromImage } from '@/lib/multimodal-ai';
 
 export const dynamic = 'force-dynamic';
 
 const VERIFY_TOKEN = process.env.META_WEBHOOK_VERIFY_TOKEN || 'saas_meta_webhook_secret_2026';
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/social-commerce';
-const APP_URL = process.env.APP_URL || 'http://localhost:3001';
 
 /**
  * GET /api/webhooks/meta - Meta Webhook Verification Handshake
@@ -28,205 +25,168 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/webhooks/meta - High-throughput Webhook Ingestion & n8n Dispatcher
+ * POST /api/webhooks/meta - Ultra-Fast Ingestion with Redis Queue
+ * Omnichannel Support: Facebook Messenger, Post Comments, Instagram DM & WhatsApp Cloud API
  */
 export async function POST(req: NextRequest) {
   const start = Date.now();
 
   try {
     const payload = await req.json();
+    console.log('🔔 [Incoming Meta Webhook]', JSON.stringify(payload, null, 2));
 
-    // Fast resolution of Page ID & Sender ID from payload
     const entry = payload.entry?.[0];
-    const pageId = entry?.id || entry?.messaging?.[0]?.recipient?.id || 'unknown_page';
-    const senderId = entry?.messaging?.[0]?.sender?.id || 'unknown_sender';
-    let messageText = entry?.messaging?.[0]?.message?.text;
-
-    // Multimodal attachments (Voice notes & Product photos)
-    const attachments = entry?.messaging?.[0]?.message?.attachments || [];
-    const audioAttachment = attachments.find((a: any) => a.type === 'audio');
-    const imageAttachment = attachments.find((a: any) => a.type === 'image');
-
-    let isMultimodal = false;
-    let attachmentType = null;
-
-    // 1. Audio voice note transcription (Bengali Speech-to-Text)
-    if (audioAttachment && !messageText) {
-      isMultimodal = true;
-      attachmentType = 'audio';
-      const audioUrl = audioAttachment.payload?.url;
-      const transcription = await transcribeVoiceNote(audioUrl);
-      messageText = `[ভয়েস নোট ট্রান্সক্রিপশন]: ${transcription.text}`;
+    if (!entry) {
+      return NextResponse.json({ received: true, message: 'Empty entry' }, { status: 200 });
     }
 
-    // 2. Image recognition (Customer sent a product photo)
-    if (imageAttachment && !messageText) {
-      isMultimodal = true;
-      attachmentType = 'image';
-      const imageUrl = imageAttachment.payload?.url;
-      const visionResult = await identifyProductFromImage(imageUrl, []);
-      if (visionResult.matchedProduct) {
-        messageText = `[ছবিতে শনাক্তকৃত পণ্য]: ${visionResult.matchedProduct.title} (মূল্য: ৳${visionResult.matchedProduct.price})`;
-      }
-    }
+    const pageId = entry.id || entry.messaging?.[0]?.recipient?.id;
 
-    // Generate unique event tracking ID
-    const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-    // 3. Resolve Channel & Tenant from Database
-    let tenant: any = null;
+    // Resolve matching channel & tenant strictly
     let channel: any = null;
-
-    try {
-      // Find matching connected channel
+    if (pageId) {
       const channelRes = await query(
-        `SELECT c.id, c.tenant_id, c.platform, c.channel_identifier, c.channel_name, c.access_token,
-                t.name as tenant_name, t.about_shop, t.delivery_inside_dhaka, t.delivery_outside_dhaka,
-                t.delivery_time_dhaka, t.delivery_time_outside, t.return_policy, t.ai_tone, 
-                t.custom_rules, t.support_phone
+        `SELECT c.id, c.tenant_id, c.platform, c.channel_identifier, c.channel_name, c.access_token, c.ai_active
          FROM channels c
-         JOIN tenants t ON c.tenant_id = t.id
-         WHERE c.channel_identifier = $1 AND c.platform = 'facebook'
+         WHERE c.channel_identifier = $1
          LIMIT 1;`,
-        [pageId]
+        [String(pageId)]
       );
-
       if (channelRes.rows.length > 0) {
         channel = channelRes.rows[0];
-        tenant = channelRes.rows[0];
-      } else {
-        // Fallback to active demo tenant for testing or unbound pages
-        const tenantRes = await query(
-          `SELECT id as tenant_id, name as tenant_name, about_shop, delivery_inside_dhaka, 
-                  delivery_outside_dhaka, delivery_time_dhaka, delivery_time_outside, 
-                  return_policy, ai_tone, custom_rules, support_phone
-           FROM tenants 
-           WHERE slug = 'demo-aarong-fashion'
-           LIMIT 1;`
-        );
-        if (tenantRes.rows.length > 0) {
-          tenant = tenantRes.rows[0];
+      }
+    }
+
+    // =========================================================================
+    // CASE 1: Incoming Facebook Messenger or Instagram DM
+    // =========================================================================
+    const messagingEvents = entry.messaging || [];
+    for (const messagingEvent of messagingEvents) {
+      if (messagingEvent.message && !messagingEvent.message.is_echo) {
+        const senderId = messagingEvent.sender?.id;
+        let messageText = messagingEvent.message?.text;
+
+        // Handle Multimodal (Audio voice notes & product photos)
+        const attachments = messagingEvent.message.attachments || [];
+        const audioAttachment = attachments.find((a: any) => a.type === 'audio');
+        const imageAttachment = attachments.find((a: any) => a.type === 'image');
+
+        if (audioAttachment && !messageText) {
+          try {
+            const transcription = await transcribeVoiceNote(audioAttachment.payload?.url);
+            messageText = `[ভয়েস নোট ট্রান্সক্রিপশন]: ${transcription.text}`;
+          } catch (e) {}
+        }
+
+        if (imageAttachment && !messageText) {
+          try {
+            const visionResult = await identifyProductFromImage(imageAttachment.payload?.url, []);
+            if (visionResult.matchedProduct) {
+              messageText = `[ছবিতে শনাক্তকৃত পণ্য]: ${visionResult.matchedProduct.title} (মূল্য: ৳${visionResult.matchedProduct.price})`;
+            }
+          } catch (e) {}
+        }
+
+        if (channel && senderId && messageText && channel.ai_active !== false) {
+          // Enqueue into Resilient Redis FIFO Queue with auto-retry
+          await enqueueWebhookJob('customer_message', {
+            tenantId: channel.tenant_id,
+            channelId: channel.id,
+            pageId: String(pageId),
+            senderId: String(senderId),
+            messageText,
+            accessToken: channel.access_token || process.env.META_PAGE_ACCESS_TOKEN || '',
+          });
         }
       }
-    } catch (dbErr) {
-      console.error('Channel resolution DB error:', dbErr);
     }
 
-    const tenantId = tenant?.tenant_id || tenant?.id || 'c0bc0200-8f99-4dbd-bc8b-ed6f84d5fc1f';
+    // =========================================================================
+    // CASE 2: Incoming Facebook Post Comment & WhatsApp (feed & messages changes)
+    // =========================================================================
+    if (entry.changes && Array.isArray(entry.changes)) {
+      for (const change of entry.changes) {
+        // Facebook Post Comment (feed changes)
+        if (change.field === 'feed') {
+          const val = change.value;
+          if (val && val.item === 'comment' && val.verb !== 'remove') {
+            const commentId = val.comment_id;
+            const postId = val.post_id || val.parent_id || 'general_post';
+            const commenterId = val.from?.id;
+            const commenterName = val.from?.name || 'Facebook User';
+            const commentText = val.message;
+            const postMessage = val.post?.message;
 
-    // 4. Fetch Active Products Catalog for Tenant
-    let products: any[] = [];
-    try {
-      const prodRes = await query(
-        `SELECT id, title, price, stock, sku, description, image_url 
-         FROM products 
-         WHERE tenant_id = $1 AND is_active = TRUE 
-         ORDER BY stock DESC 
-         LIMIT 25;`,
-        [tenantId]
-      );
-      products = prodRes.rows;
-    } catch (prodErr) {
-      console.error('Products fetch error:', prodErr);
-    }
+            const isOwnPage = commenterId === pageId || commenterId === channel?.channel_identifier;
 
-    // 5. Build Enriched Structured Payload for n8n
-    const n8nPayload = {
-      event_id: eventId,
-      source: 'facebook_messenger',
-      timestamp: new Date().toISOString(),
-      tenant: {
-        id: tenantId,
-        name: tenant?.tenant_name || 'KothaShop Partner',
-        about_shop: tenant?.about_shop || 'একটি বিশ্বস্ত অনলাইন শপ',
-        delivery_inside_dhaka: Number(tenant?.delivery_inside_dhaka) || 80,
-        delivery_outside_dhaka: Number(tenant?.delivery_outside_dhaka) || 130,
-        delivery_time_dhaka: tenant?.delivery_time_dhaka || '১-২ কর্মদিবস',
-        delivery_time_outside: tenant?.delivery_time_outside || '৩-৫ কর্মদিবস',
-        return_policy: tenant?.return_policy || '৭ দিনের রিটার্ন সুবিধা',
-        support_phone: tenant?.support_phone || '০১৭০০০০০০০০',
-        ai_tone: tenant?.ai_tone || 'polite',
-        custom_rules: tenant?.custom_rules || '',
-      },
-      channel: {
-        id: channel?.id || null,
-        page_id: pageId,
-        sender_id: senderId,
-        page_access_token: channel?.access_token || process.env.META_PAGE_ACCESS_TOKEN || 'mock_token',
-      },
-      customer: {
-        sender_id: senderId,
-        raw_message: messageText || '',
-        is_multimodal: isMultimodal,
-        attachment_type: attachmentType,
-      },
-      catalog: products.map((p) => ({
-        id: p.id,
-        title: p.title,
-        price: Number(p.price),
-        stock: p.stock,
-        sku: p.sku,
-        description: p.description,
-        image_url: p.image_url,
-      })),
-      callback_url: `${APP_URL}/api/n8n/callback`,
-    };
+            if (channel && commentId && commentText && !isOwnPage && channel.ai_active !== false) {
+              console.log(`💬 [Comment Queued] Post: ${postId} | Commenter: ${commenterName} ("${commentText}")`);
 
-    // Buffer in Redis for monitoring & queueing
-    saasRedis.set(`event:${eventId}`, n8nPayload, { ex: 3600 }).catch(() => {});
-
-    // Check FAQ cache for instant 0-token answers if applicable
-    if (messageText) {
-      checkFaqCache('global', messageText).then((cachedAnswer) => {
-        if (cachedAnswer) {
-          console.log(`[FAQ Cache Hit] for "${messageText.slice(0, 30)}..."`);
+              // Enqueue comment processing into Redis Queue
+              await enqueueWebhookJob('facebook_comment', {
+                tenantId: channel.tenant_id,
+                channelId: channel.id,
+                postId: String(postId),
+                commentId: String(commentId),
+                customerName: commenterName,
+                customerId: commenterId,
+                commentText,
+                postMessage,
+                mediaUrl: val.photo || null,
+                permalinkUrl: val.link || null,
+                accessToken: channel.access_token || process.env.META_PAGE_ACCESS_TOKEN || '',
+              });
+            }
+          }
         }
-      });
-    }
 
-    // 6. Asynchronously Forward to n8n Automation Engine (Non-blocking)
-    console.log(`[Gateway -> n8n] Dispatching event ${eventId} to ${N8N_WEBHOOK_URL}...`);
-    fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'KothaShop-Gateway/2.0',
-        'X-KothaShop-Event-Id': eventId,
-      },
-      body: JSON.stringify(n8nPayload),
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          console.log(`✅ [Gateway -> n8n] Dispatched event ${eventId} successfully (Status: ${res.status})`);
-        } else {
-          console.warn(`⚠️ [Gateway -> n8n] n8n returned non-200 status (${res.status}) for event ${eventId}`);
+        // WhatsApp Business Cloud API Message Ingestion
+        if (change.field === 'messages') {
+          const val = change.value;
+          const phoneNumberId = val?.metadata?.phone_number_id;
+          const waMessage = val?.messages?.[0];
+
+          if (phoneNumberId && waMessage) {
+            const waChannelRes = await query(
+              `SELECT c.id, c.tenant_id, c.access_token, c.ai_active
+               FROM channels c
+               WHERE c.channel_identifier = $1 AND c.platform = 'whatsapp'
+               LIMIT 1;`,
+              [String(phoneNumberId)]
+            );
+
+            if (waChannelRes.rows.length > 0 && waChannelRes.rows[0].ai_active !== false) {
+              const waChannel = waChannelRes.rows[0];
+              const senderPhone = waMessage.from; // e.g. 8801700000000
+              const waText = waMessage.text?.body || '';
+
+              if (waText && senderPhone) {
+                console.log(`📱 [WhatsApp Queued] From: ${senderPhone} ("${waText}")`);
+                await enqueueWebhookJob('customer_message', {
+                  tenantId: waChannel.tenant_id,
+                  channelId: waChannel.id,
+                  pageId: String(phoneNumberId),
+                  senderId: String(senderPhone),
+                  customerName: val.contacts?.[0]?.profile?.name || `WhatsApp ${senderPhone}`,
+                  messageText: waText,
+                  accessToken: waChannel.access_token || process.env.META_PAGE_ACCESS_TOKEN || '',
+                });
+              }
+            }
+          }
         }
-      })
-      .catch((err) => {
-        // n8n might not be running locally yet, log friendly warning without failing webhook
-        console.warn(`ℹ️ [Gateway -> n8n] Could not reach n8n at ${N8N_WEBHOOK_URL}. Make sure n8n is active: ${err.message}`);
-      });
+      }
+    }
 
     const duration = Date.now() - start;
 
-    // Immediately return 200 OK to Meta to guarantee zero webhook timeouts
+    // Fast acknowledgement to Meta within 10-25ms
     return NextResponse.json(
-      {
-        received: true,
-        eventId,
-        forwardedToN8n: true,
-        durationMs: duration,
-      },
-      {
-        status: 200,
-        headers: {
-          'X-Response-Time': `${duration}ms`,
-        },
-      }
+      { received: true, queued: true, durationMs: duration },
+      { status: 200, headers: { 'X-Response-Time': `${duration}ms` } }
     );
   } catch (error: any) {
     console.error('Webhook ingestion error:', error);
-    // Always return 200 to prevent Meta from revoking the webhook URL
     return NextResponse.json({ received: true, error: error.message }, { status: 200 });
   }
 }

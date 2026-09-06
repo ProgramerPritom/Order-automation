@@ -27,7 +27,7 @@ export default function AssistantPage() {
     {
       id: 'welcome',
       sender: 'assistant',
-      text: 'আসসালামু আলাইকুম! আমি আপনার শপের নিজস্ব এআই সহকারী (Business Copilot)। আপনার শপের লাইভ সেলস, পেন্ডিং অর্ডার, প্রোডাক্টের স্টক কিংবা লাভ-লোকসান সম্পর্কে যেকোনো কিছু জানতে চান? নিচের যেকোনো প্রশ্নে ক্লিক করুন অথবা লিখে পাঠান!',
+      text: 'আসসালামু আলাইকুম ভাইয়া! আমি আপনার শপের এআই বিজনেস কো-পাইলট (Business Copilot)। আপনার শপের লাইভ সেলস, পেন্ডিং অর্ডার, ফেসবুক পেজ ও সোশ্যাল চ্যানেল কানেকশন কিংবা প্রোডাক্টের স্টক সম্পর্কে যেকোনো প্রশ্ন করতে পারেন।',
       timestamp: new Date().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -43,11 +43,11 @@ export default function AssistantPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const quickPrompts = [
+    '🌐 আমার ফেসবুক পেজ ও চ্যানেল কি কানেক্ট হয়েছে?',
     '📊 আজকের মোট সেলস ও অর্ডারের অবস্থা কেমন?',
     '⏳ পেন্ডিং অর্ডারগুলো কোনগুলো? কাস্টমারদের ফোন নম্বর দাও',
     '⚠️ কোন কোন প্রোডাক্টের স্টক শেষ হয়ে আসছে?',
     '💰 ডেলিভারড অর্ডার থেকে আমার আসল লাভ কত হলো?',
-    '🚚 কুরিয়ারে পাঠানো অর্ডারের ডেলিভারি স্ট্যাটাস কী?',
   ];
 
   const scrollToBottom = () => {
@@ -120,23 +120,23 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12 flex flex-col h-[calc(100vh-8rem)]">
+    <div className="w-full flex flex-col h-[calc(100vh-6.5rem)] space-y-4">
       
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white shadow-xl shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white shadow-xl shrink-0">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/30 shrink-0">
             <Bot className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-black tracking-tight">আমার এআই সহকারী (Business Copilot)</h1>
+              <h1 className="text-base sm:text-lg font-black tracking-tight">আমার এআই সহকারী (Business Copilot)</h1>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
                 লাইভ ডাটাবেজ সিঙ্ক
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-0.5">
-              আপনার দোকানের সেলস, পেন্ডিং অর্ডার ও স্টক সংক্রান্ত যেকোনো প্রশ্নের তাৎক্ষণিক উত্তর পান
+              আপনার শপের সেলস, ফেসবুক পেজ কানেকশন, পেন্ডিং অর্ডার ও স্টক সংক্রান্ত যেকোনো প্রশ্নের তাৎক্ষণিক উত্তর পান
             </p>
           </div>
         </div>
@@ -161,7 +161,7 @@ export default function AssistantPage() {
                 )}
 
                 <div
-                  className={`max-w-lg p-4 rounded-2xl text-xs leading-relaxed shadow-sm relative group ${
+                  className={`max-w-xl sm:max-w-2xl p-4 rounded-2xl text-xs leading-relaxed shadow-sm relative group ${
                     isMe
                       ? 'bg-indigo-600 text-white rounded-tr-none'
                       : 'bg-slate-50 border border-slate-200 text-slate-800 rounded-tl-none'

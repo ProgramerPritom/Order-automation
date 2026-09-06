@@ -10,6 +10,7 @@ import {
   Package,
   ShoppingBag,
   MessageSquare,
+  MessageCircle,
   LogOut,
   Bot,
   Store,
@@ -29,6 +30,13 @@ import {
 import { useAppDispatch, useAppSelector } from '@/lib/store/hooks';
 import { hydrateAuth, logout as reduxLogout } from '@/lib/store/slices/authSlice';
 import { fetchSubscription } from '@/lib/store/slices/dashboardSlice';
+import {
+  getSessionToken,
+  getSessionData,
+  clearSession,
+  refreshTokenAndResume,
+  setupFetchAuthInterceptor,
+} from '@/lib/session';
 
 export default function DashboardLayout({
   children,
@@ -68,39 +76,69 @@ export default function DashboardLayout({
   };
 
   useEffect(() => {
-    // Client-side auth check
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      window.location.href = '/login';
-      return;
-    }
+    // 1. Install global fetch interceptor (handles silent token refresh on 401 & auto-logout)
+    setupFetchAuthInterceptor();
 
-    // Hydrate Redux state from storage if not already hydrated
-    if (!auth.isHydrated) {
-      let user = null;
-      let tenant = null;
-      try {
-        const savedTenant = localStorage.getItem('tenant');
-        const savedUser = localStorage.getItem('user');
-        if (savedTenant) tenant = JSON.parse(savedTenant);
-        if (savedUser) user = JSON.parse(savedUser);
-      } catch (e) {}
+    const initAuth = async () => {
+      let token = getSessionToken();
+      if (!token) {
+        // If access token is absent, attempt immediate silent refresh using refresh token cookie
+        token = await refreshTokenAndResume();
+      }
 
+      if (!token) {
+        clearSession();
+        window.location.href = '/login?expired=true';
+        return;
+      }
+
+      // Hydrate Redux state from storage/cookies
+      const { user, tenant } = getSessionData();
       dispatch(hydrateAuth({ user, tenant, token }));
-    }
+      setIsAuthChecked(true);
 
-    setIsAuthChecked(true);
+      // Fetch live subscription (Redux thunk skips network call if already cached)
+      dispatch(fetchSubscription(token));
+    };
 
-    // Fetch live subscription (Redux thunk skips network call if already cached)
-    dispatch(fetchSubscription(token));
-  }, [dispatch, auth.isHydrated]);
+    initAuth();
+
+    // 2. Reconnect listener: If user regains internet and session token is missing, restore it
+    const handleOnline = () => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        const token = getSessionToken();
+        if (!token) {
+          refreshTokenAndResume().then((newToken) => {
+            if (newToken) {
+              const { user, tenant } = getSessionData();
+              dispatch(hydrateAuth({ user, tenant, token: newToken }));
+            }
+          });
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    // 3. Periodic session health check every 30 minutes
+    const interval = setInterval(() => {
+      if (typeof window !== 'undefined' && navigator.onLine && document.visibilityState === 'visible') {
+        refreshTokenAndResume();
+      }
+    }, 30 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      clearInterval(interval);
+    };
+  }, [dispatch]);
 
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {}
     dispatch(reduxLogout());
-    localStorage.clear();
+    clearSession();
     window.location.href = '/login';
   };
 
@@ -119,7 +157,7 @@ export default function DashboardLayout({
 
   const isSuperAdmin = userRole === 'superadmin';
 
-  // Base navigation for clients
+  // Base navigation for clients (Clean, minimal, eye-catching)
   const navItems = [
     {
       name: 'Overview',
@@ -130,14 +168,16 @@ export default function DashboardLayout({
       name: 'আমার সহকারী',
       href: '/dashboard/assistant',
       icon: <Bot className="w-5 h-5 text-indigo-400" />,
-      badge: 'AI Copilot',
-      highlight: true,
     },
     {
       name: 'Social Channels',
       href: '/dashboard/channels',
       icon: <Share2 className="w-5 h-5" />,
-      badge: 'FB • IG • WA',
+    },
+    {
+      name: 'পোস্ট ও কমেন্টস',
+      href: '/dashboard/comments',
+      icon: <MessageCircle className="w-5 h-5 text-sky-400" />,
     },
     ...(isSuperAdmin
       ? [
@@ -145,13 +185,11 @@ export default function DashboardLayout({
             name: '👑 Super Admin Master',
             href: '/admin',
             icon: <Sparkles className="w-5 h-5 text-amber-400" />,
-            badge: 'Platform',
           },
           {
             name: 'n8n & Health Monitor',
             href: '/dashboard/automation',
-            icon: <Activity className="w-5 h-5" />,
-            highlight: true,
+            icon: <Activity className="w-5 h-5 text-emerald-400" />,
           },
         ]
       : []),
@@ -163,8 +201,7 @@ export default function DashboardLayout({
     {
       name: 'AI & Shop Knowledge',
       href: '/dashboard/knowledge',
-      icon: <Brain className="w-5 h-5" />,
-      badge: 'RAG Rules',
+      icon: <Brain className="w-5 h-5 text-purple-400" />,
     },
     {
       name: 'Orders CRM',
@@ -175,7 +212,6 @@ export default function DashboardLayout({
       name: 'Reports & Analytics',
       href: '/dashboard/reports',
       icon: <BarChart3 className="w-5 h-5" />,
-      badge: 'Daily • Monthly',
     },
     {
       name: 'Live Inbox & Takeover',
@@ -259,11 +295,11 @@ export default function DashboardLayout({
                   <span className="text-slate-400">প্ল্যান স্ট্যাটাস:</span>
                   {subInfo.status === 'trialing' ? (
                     <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-                      ট্রায়াল ({subInfo.daysRemaining} দিন)
+                      ট্রায়াল ({String(Math.min(7, subInfo.daysRemaining || 7)).replace(/\d/g, (d) => '০১২৩৪৫৬৭৮৯'[parseInt(d, 10)])} দিন)
                     </span>
                   ) : (
                     <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 uppercase">
-                      {subInfo.plan} ({subInfo.daysRemaining} দিন)
+                      {subInfo.plan} ({String(subInfo.daysRemaining).replace(/\d/g, (d) => '০১২৩৪৫৬৭৮৯'[parseInt(d, 10)])} দিন)
                     </span>
                   )}
                 </div>
@@ -290,28 +326,15 @@ export default function DashboardLayout({
                 href={item.href}
                 title={isCollapsed ? item.name : undefined}
                 className={`flex items-center ${
-                  isCollapsed ? 'justify-center px-2 py-3' : 'justify-between px-3.5 py-3'
+                  isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-3.5 py-2.5'
                 } rounded-xl text-xs font-bold transition-all group relative ${
                   isActive
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
-                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
-                  <div className="shrink-0">{item.icon}</div>
-                  {!isCollapsed && <span className="truncate">{item.name}</span>}
-                </div>
-                {!isCollapsed && item.badge && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
-                    {item.badge}
-                  </span>
-                )}
-                {!isCollapsed && item.highlight && !isActive && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                )}
-                {isCollapsed && item.highlight && !isActive && (
-                  <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                )}
+                <div className="shrink-0">{item.icon}</div>
+                {!isCollapsed && <span className="truncate">{item.name}</span>}
               </Link>
             );
           })}
@@ -383,21 +406,14 @@ export default function DashboardLayout({
                     key={item.href}
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
                       isActive
                         ? 'bg-indigo-600 text-white'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      {item.icon}
-                      <span>{item.name}</span>
-                    </div>
-                    {item.badge && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300">
-                        {item.badge}
-                      </span>
-                    )}
+                    <div className="shrink-0">{item.icon}</div>
+                    <span>{item.name}</span>
                   </Link>
                 );
               })}
@@ -472,7 +488,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content Viewport */}
-        <main className="flex-1 p-4 sm:p-8 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-6 overflow-y-auto w-full">
           {children}
         </main>
 

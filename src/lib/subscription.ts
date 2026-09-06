@@ -92,7 +92,7 @@ export async function checkTenantSubscription(tenantId: string): Promise<Subscri
 
   // Case 2: 7-Day Free Trial
   const trialEnd = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
-  const daysRemaining = trialEnd ? Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))) : 0;
+  const daysRemaining = trialEnd ? Math.min(7, Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))) : 0;
 
   if (!trialEnd || trialEnd <= now) {
     // 7 days expired

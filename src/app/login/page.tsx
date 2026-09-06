@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bot, ArrowRight, Lock, Phone, Mail, AlertCircle, Sparkles } from 'lucide-react';
+import { getSessionToken, saveSession } from '@/lib/session';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +13,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    const existingToken = getSessionToken();
+    if (existingToken) {
+      window.location.href = '/dashboard';
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,11 +40,9 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
-      // Save token in localStorage for client-side queries
+      // Persist across localStorage, sessionStorage, and browser cookies
       if (data.accessToken) {
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('tenant', JSON.stringify(data.tenant));
+        saveSession(data.accessToken, data.user, data.tenant);
       }
 
       setSuccess('লগইন সফল হয়েছে! ড্যাশবোর্ডে প্রবেশ করা হচ্ছে...');

@@ -125,12 +125,32 @@ export async function POST(req: NextRequest) {
         accessToken,
       }, { status: 201 });
 
+      // Set persistent session cookies (30 days)
+      const thirtyDays = 30 * 24 * 60 * 60;
+      const isProduction = process.env.NODE_ENV === 'production';
+
+      response.cookies.set('accessToken', accessToken, {
+        httpOnly: false,
+        secure: isProduction,
+        sameSite: 'lax',
+        maxAge: thirtyDays,
+        path: '/',
+      });
+
+      response.cookies.set('token', accessToken, {
+        httpOnly: false,
+        secure: isProduction,
+        sameSite: 'lax',
+        maxAge: thirtyDays,
+        path: '/',
+      });
+
       // Set HttpOnly refresh token cookie
       response.cookies.set('refresh_token', refreshToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60, // 7 days
+        secure: isProduction,
+        sameSite: 'lax',
+        maxAge: thirtyDays,
         path: '/',
       });
 

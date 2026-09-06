@@ -38,7 +38,17 @@ export default function PublicSalesChatbot() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Hide widget on dashboard or admin pages
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      scrollToBottom();
+    }
+  }, [messages, isOpen, loading]);
+
+  // Hide widget on dashboard or admin pages (must be after all hooks!)
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
     return null;
   }
@@ -50,16 +60,6 @@ export default function PublicSalesChatbot() {
     '🛡️ ফেক অর্ডার কীভাবে ঠেকায়?',
     '🚀 ৭ দিন ফ্রি কীভাবে শুরু করব?',
   ];
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    if (isOpen) {
-      scrollToBottom();
-    }
-  }, [messages, isOpen, loading]);
 
   const handleSend = async (queryText?: string) => {
     const text = (queryText || input).trim();

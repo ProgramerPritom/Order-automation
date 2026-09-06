@@ -11,8 +11,10 @@ async function getAuthTenant(req: NextRequest) {
   return verifyAccessToken(token);
 }
 
+import { parsePaginationParams, decodeCursor, encodeCursor } from '@/lib/pagination';
+
 /**
- * GET /api/orders - List orders with search, status filtering & summary metrics
+ * GET /api/orders - List orders with search, status filtering, metrics & cursor pagination
  */
 export async function GET(req: NextRequest) {
   try {
@@ -24,7 +26,38 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const search = searchParams.get('q');
+    const { cursor, limit } = parsePaginationParams(req.url, 15, 50);
+    const decodedCursor = decodeCursor(cursor);
 
+    // 1. Overall tenant metrics query
+    const metricsRes = await query(
+      `SELECT count(*) as total_orders,
+              count(*) FILTER (WHERE status = 'delivered') as delivered_count,
+              COALESCE(sum(total_amount) FILTER (WHERE status = 'delivered'), 0) as delivered_sales,
+              COALESCE(sum(estimated_profit) FILTER (WHERE status = 'delivered'), 0) as delivered_profit
+       FROM orders
+       WHERE tenant_id = $1;`,
+      [auth.tenantId]
+    );
+
+    const metricsRow = metricsRes.rows[0] || {};
+    const totalOrdersCount = parseInt(metricsRow.total_orders || '0', 10);
+
+    // 2. Filtered count query (for search / status)
+    let countSql = `SELECT count(*) FROM orders o WHERE o.tenant_id = $1`;
+    const countParams: any[] = [auth.tenantId];
+    if (status && status !== 'all') {
+      countSql += ` AND o.status = $${countParams.length + 1}`;
+      countParams.push(status);
+    }
+    if (search && search.trim()) {
+      countSql += ` AND (o.customer_name ILIKE $${countParams.length + 1} OR o.customer_phone ILIKE $${countParams.length + 1} OR o.order_number ILIKE $${countParams.length + 1})`;
+      countParams.push(`%${search.trim()}%`);
+    }
+    const filteredCountRes = await query(countSql, countParams);
+    const filteredTotal = parseInt(filteredCountRes.rows[0].count, 10);
+
+    // 3. Paginated orders query with Keyset / Cursor
     let sql = `
       SELECT o.id, o.order_number, o.customer_name, o.customer_phone, 
              o.delivery_address, o.delivery_city, o.district, o.postal_code,
@@ -64,24 +97,43 @@ export async function GET(req: NextRequest) {
       paramIndex++;
     }
 
-    sql += ` GROUP BY o.id, c.platform, c.channel_name ORDER BY o.created_at DESC;`;
+    // Apply cursor condition if provided
+    if (decodedCursor) {
+      sql += ` AND (o.created_at, o.id) < ($${paramIndex}, $${paramIndex + 1})`;
+      params.push(decodedCursor.createdAt, decodedCursor.id);
+      paramIndex += 2;
+    }
+
+    sql += ` GROUP BY o.id, c.platform, c.channel_name ORDER BY o.created_at DESC, o.id DESC LIMIT $${paramIndex};`;
+    params.push(limit + 1);
 
     const res = await query(sql, params);
+    const rows = res.rows;
+    const hasMore = rows.length > limit;
+    const orders = hasMore ? rows.slice(0, limit) : rows;
 
-    // Calculate metrics
-    const allOrders = res.rows;
-    const totalOrders = allOrders.length;
-    const deliveredOrders = allOrders.filter((o: any) => o.status === 'delivered');
-    const deliveredSales = deliveredOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_amount || 0), 0);
-    const deliveredProfit = deliveredOrders.reduce((sum: number, o: any) => sum + parseFloat(o.estimated_profit || (parseFloat(o.total_amount || 0) * 0.35)), 0);
+    let nextCursor: string | null = null;
+    if (hasMore && orders.length > 0) {
+      const last = orders[orders.length - 1];
+      nextCursor = encodeCursor({
+        id: last.id,
+        createdAt: new Date(last.created_at).toISOString(),
+      });
+    }
 
     return NextResponse.json({
-      orders: allOrders,
+      orders,
+      pagination: {
+        nextCursor,
+        hasMore,
+        limit,
+        totalCount: filteredTotal,
+      },
       metrics: {
-        totalOrders,
-        deliveredCount: deliveredOrders.length,
-        deliveredSales: Math.round(deliveredSales),
-        deliveredProfit: Math.round(deliveredProfit),
+        totalOrders: totalOrdersCount,
+        deliveredCount: parseInt(metricsRow.delivered_count || '0', 10),
+        deliveredSales: Math.round(parseFloat(metricsRow.delivered_sales || '0')),
+        deliveredProfit: Math.round(parseFloat(metricsRow.delivered_profit || '0')),
         botCost: `৳০ - ৳৪০`,
       },
     });

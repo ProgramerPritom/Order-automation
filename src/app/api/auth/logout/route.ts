@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
     });
 
     response.cookies.delete('refresh_token');
+    response.cookies.delete('accessToken');
+    response.cookies.delete('token');
     return response;
   } catch (error: any) {
     console.error('Logout error:', error);

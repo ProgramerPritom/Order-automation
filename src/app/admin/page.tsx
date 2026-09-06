@@ -38,6 +38,9 @@ interface TenantRecord {
   created_at: string;
 }
 
+import { getSessionToken } from '@/lib/session';
+import { PaginationControl } from '@/components/ui/PaginationControl';
+
 export default function SuperAdminPage() {
   const router = useRouter();
   const [stats, setStats] = useState({
@@ -52,15 +55,26 @@ export default function SuperAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  const fetchAdminData = async () => {
-    const token = localStorage.getItem('accessToken');
+  // Keyset Cursor Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isPaginating, setIsPaginating] = useState(false);
+
+  const fetchAdminData = async (cursor?: string | null, isPageNav: boolean = false) => {
+    const token = getSessionToken();
     if (!token) {
       window.location.href = '/login';
       return;
     }
 
+    if (isPageNav) setIsPaginating(true);
+
     try {
-      const res = await fetch('/api/admin/tenants', {
+      const url = `/api/admin/tenants?limit=15${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -74,11 +88,15 @@ export default function SuperAdminPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to fetch admin data');
 
       setStats(data.stats);
-      setTenants(data.tenants);
+      setTenants(data.tenants || []);
+      setNextCursor(data.pagination?.nextCursor || null);
+      setHasMore(Boolean(data.pagination?.hasMore));
+      setTotalCount(data.pagination?.totalCount || 0);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
+      setIsPaginating(false);
     }
   };
 
@@ -86,8 +104,24 @@ export default function SuperAdminPage() {
     fetchAdminData();
   }, []);
 
+  const handleNextPage = () => {
+    if (!nextCursor || !hasMore) return;
+    setCursorStack((prev) => [...prev, nextCursor]);
+    setCurrentPage((prev) => prev + 1);
+    fetchAdminData(nextCursor, true);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage <= 1) return;
+    const targetIdx = currentPage - 2;
+    const targetCursor = cursorStack[targetIdx] ?? null;
+    setCursorStack((prev) => prev.slice(0, currentPage - 1));
+    setCurrentPage((prev) => prev - 1);
+    fetchAdminData(targetCursor, true);
+  };
+
   const handleAction = async (action: string, tenantId: string, plan?: string) => {
-    const token = localStorage.getItem('accessToken');
+    const token = getSessionToken();
     try {
       const res = await fetch('/api/admin/tenants', {
         method: 'POST',
@@ -103,7 +137,8 @@ export default function SuperAdminPage() {
 
       setActionMsg(data.message || 'অ্যাকশন সফল হয়েছে!');
       setTimeout(() => setActionMsg(null), 4000);
-      fetchAdminData();
+      const currentCursor = cursorStack[currentPage - 1] ?? null;
+      fetchAdminData(currentCursor);
     } catch (err: any) {
       alert(err.message);
     }
@@ -337,6 +372,18 @@ export default function SuperAdminPage() {
               </tbody>
             </table>
           </div>
+
+          <PaginationControl
+            currentPage={currentPage}
+            pageSize={15}
+            totalCount={totalCount}
+            hasMore={hasMore}
+            onNextPage={handleNextPage}
+            onPrevPage={handlePrevPage}
+            loading={isPaginating}
+            itemLabel="মার্চেন্ট স্টোর"
+            theme="dark"
+          />
         </div>
 
       </div>

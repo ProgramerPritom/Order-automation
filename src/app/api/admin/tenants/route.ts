@@ -3,6 +3,8 @@ import { verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { activateMonthlyPlan } from '@/lib/subscription';
 
+import { parsePaginationParams, decodeCursor, encodeCursor } from '@/lib/pagination';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
@@ -19,13 +21,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden: Super Admin access required' }, { status: 403 });
     }
 
+    const { limit, cursor } = parsePaginationParams(req.url, 15, 50);
+    const decodedCursor = decodeCursor(cursor);
+
     // 1. Platform Global Metrics
     const totalTenantsRes = await query(`SELECT count(*) FROM tenants;`);
     const totalOrdersRes = await query(`SELECT count(*), COALESCE(sum(total_amount), 0) as total_revenue FROM orders;`);
     const activeSubRes = await query(`SELECT count(*) FROM tenants WHERE subscription_status = 'active';`);
     const trialingRes = await query(`SELECT count(*) FROM tenants WHERE subscription_status = 'trialing';`);
 
-    // 2. All Merchants Table
+    // 2. Tenants Keyset Cursor Filter
+    const cursorValues: any[] = [];
+    let cursorClause = '';
+    if (decodedCursor) {
+      cursorClause = `WHERE (t.created_at, t.id) < ($1, $2)`;
+      cursorValues.push(decodedCursor.createdAt, decodedCursor.id);
+    }
+
     const tenantsListRes = await query(`
       SELECT 
         t.id, t.name as store_name, t.slug, t.phone as store_phone, t.email as store_email,
@@ -36,8 +48,23 @@ export async function GET(req: NextRequest) {
         (SELECT COALESCE(sum(total_amount), 0) FROM orders o WHERE o.tenant_id = t.id) as revenue_generated
       FROM tenants t
       LEFT JOIN users u ON u.tenant_id = t.id AND (u.role = 'admin' OR u.role = 'superadmin')
-      ORDER BY t.created_at DESC;
-    `);
+      ${cursorClause}
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT $${cursorValues.length + 1};
+    `, [...cursorValues, limit + 1]);
+
+    const rows = tenantsListRes.rows;
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const last = items[items.length - 1];
+      nextCursor = encodeCursor({
+        id: last.id,
+        createdAt: new Date(last.created_at).toISOString(),
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -48,7 +75,13 @@ export async function GET(req: NextRequest) {
         activeSubscriptions: parseInt(activeSubRes.rows[0].count),
         trialingStores: parseInt(trialingRes.rows[0].count),
       },
-      tenants: tenantsListRes.rows,
+      tenants: items,
+      pagination: {
+        nextCursor,
+        hasMore,
+        limit,
+        totalCount: parseInt(totalTenantsRes.rows[0].count),
+      },
     });
   } catch (error: any) {
     console.error('Super Admin API error:', error);

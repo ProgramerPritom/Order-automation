@@ -101,16 +101,17 @@ async function runPhase1Tests() {
     assert(typeof refreshToken1 === 'string' && refreshToken1.length === 80, 'Refresh token generated');
 
     // Rotate token
-    const refreshToken2 = await rotateRefreshToken(userId, refreshToken1);
+    const rotated = await rotateRefreshToken(refreshToken1, userId);
+    const refreshToken2 = rotated?.newRefreshToken;
     assert(typeof refreshToken2 === 'string' && refreshToken2 !== refreshToken1, 'Refresh token rotated successfully');
 
     // Replay attack protection: trying to use refreshToken1 again must fail
-    const replayAttempt = await rotateRefreshToken(userId, refreshToken1);
+    const replayAttempt = await rotateRefreshToken(refreshToken1, userId);
     assert(replayAttempt === null, 'Old rotated refresh token cannot be reused (Replay Attack Prevented)');
 
     // Revocation (Logout)
     await revokeRefreshToken(refreshToken2!);
-    const revokedAttempt = await rotateRefreshToken(userId, refreshToken2!);
+    const revokedAttempt = await rotateRefreshToken(refreshToken2!, userId);
     assert(revokedAttempt === null, 'Revoked token rejected upon logout');
 
     // 5. Sliding-Window Rate Limiter
