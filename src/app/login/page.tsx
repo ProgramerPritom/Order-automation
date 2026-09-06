@@ -1,0 +1,193 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Bot, ArrowRight, Lock, Phone, Mail, AlertCircle, Sparkles } from 'lucide-react';
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      // Save token in localStorage for client-side queries
+      if (data.accessToken) {
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('tenant', JSON.stringify(data.tenant));
+      }
+
+      setSuccess('লগইন সফল হয়েছে! ড্যাশবোর্ডে প্রবেশ করা হচ্ছে...');
+      
+      // Direct hard redirect guarantees no stale client state and fresh dashboard mount
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 300);
+    } catch (err: any) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleQuickDemoFill = () => {
+    setIdentifier('01700000000');
+    setPassword('PritomSecure2026!');
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      
+      {/* Brand Header */}
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+        <Link href="/" className="inline-flex items-center space-x-2.5">
+          <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/20">
+            <Bot className="w-5 h-5" />
+          </div>
+          <span className="font-extrabold text-2xl text-slate-900 tracking-tight">
+            KothaShop<span className="text-indigo-600">.ai</span>
+          </span>
+        </Link>
+        <h2 className="mt-6 text-2xl sm:text-3xl font-black text-slate-900">
+          আপনার ড্যাশবোর্ডে লগইন করুন
+        </h2>
+        <p className="mt-2 text-xs sm:text-sm text-slate-500">
+          সোশ্যাল কমার্স ও অটোমেশন কন্ট্রোল প্যানেল
+        </p>
+      </div>
+
+      {/* Form Card */}
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
+        <div className="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-3xl border border-slate-200/80">
+          
+          {error && (
+            <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 flex items-start gap-2 font-bold animate-pulse">
+              <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+              <span>{success}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            
+            {/* Phone or Email Field */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                মোবাইল নম্বর অথবা ইমেইল এড্রেস
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="যেমন: 017XXXXXXXX বা store@example.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  পাসওয়ার্ড
+                </label>
+                <a href="#" className="text-xs font-semibold text-indigo-600 hover:text-indigo-500">
+                  পাসওয়ার্ড ভুলে গেছেন?
+                </a>
+              </div>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading || !!success}
+              className="w-full mt-2 py-3.5 px-4 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/20 active:scale-[0.99] transition-all disabled:opacity-75 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>তথ্য যাচাই করা হচ্ছে...</span>
+                </div>
+              ) : success ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>ড্যাশবোর্ডে প্রবেশ করা হচ্ছে...</span>
+                </div>
+              ) : (
+                <>
+                  <span>ড্যাশবোর্ডে প্রবেশ করুন</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Quick Demo Fill Aid */}
+          <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+            <button
+              type="button"
+              onClick={handleQuickDemoFill}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-indigo-600 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>ডেমো ক্রেডেনশিয়াল ফিল করুন (One-Click)</span>
+            </button>
+          </div>
+
+          <div className="mt-6 text-center text-xs text-slate-500">
+            নতুন ইউজার?{' '}
+            <Link href="/register" className="font-bold text-indigo-600 hover:underline">
+              ৭ দিনের ফ্রি একাউন্ট খুলুন
+            </Link>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  );
+}

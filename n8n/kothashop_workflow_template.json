@@ -1,0 +1,228 @@
+{
+  "name": "KothaShop AI Social Commerce - Master Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "social-commerce",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "1. Ingest from KothaShop Gateway",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "id": "webhook-ingest-node"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare AI Prompt with Shop Knowledge and Product Catalog\nconst input = $input.first().json;\n\nconst shop = input.tenant || {};\nconst customer = input.customer || {};\nconst catalog = input.catalog || [];\n\nconst catalogText = catalog.map((p, i) => \n  `${i + 1}. [ID: ${p.id}] ${p.title} - মূল্য: ৳${p.price} | স্টক: ${p.stock} | বিবরণ: ${p.description || 'N/A'}`\n).join('\\n');\n\nconst systemPrompt = `\nতুমি হলে \"${shop.name || 'KothaShop Partner'}\"-এর অত্যন্ত চটপটে, বিনয়ী ও বিশ্বস্ত এআই সেলস ম্যানেজার।\n\n[শপ সম্পর্কিত তথ্য]:\n- পরিচিতি: ${shop.about_shop || 'একটি প্রিমিয়াম অনলাইন শপ'}\n- ডেলিভারি চার্জ: ঢাকার ভেতর ৳${shop.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${shop.delivery_outside_dhaka || 130}\n- ডেলিভারি সময়: ঢাকা ${shop.delivery_time_dhaka || '১-২ কর্মদিবস'}, বাইরে ${shop.delivery_time_outside || '৩-৫ কর্মদিবস'}\n- রিটার্ন পলিসি: ${shop.return_policy || '৭ দিনের রিটার্ন পলিসি'}\n- হটলাইন: ${shop.support_phone || '০১৭০০০০০০০০'}\n- বিশেষ নিয়ম: ${shop.custom_rules || 'কোনো নিয়ম নেই'}\n\n[পণ্য ক্যাটালগ]:\n${catalogText}\n\n[কাস্টমারের মেসেজ]: \"${customer.raw_message}\"\n\n[তোমার করণীয়]:\n১. কাস্টমার সাধারণ পণ্যের দাম, কালার বা ডেলিভারি জানতে চাইলে আন্তরিক বাংলায় সুন্দরভাবে উত্তর দাও।\n২. কাস্টমার যদি পণ্য অর্ডার করতে চায়, তবে তার নাম, ফোন নম্বর, বিস্তারিত ঠিকানা ও ডেলিভারি সিটি (ঢাকা নাকি ঢাকার বাইরে) সংগ্রহ করো।\n৩. যদি নাম, সঠিক ১১ ডিজিটের মোবাইল নম্বর এবং ঠিকানা পাওয়া যায়, তবে অর্ডারটি কনফার্ম করো এবং নিশ্চিতকরণ বার্তা দাও।\n\n[আউটপুট ফরম্যাট - শুধুমাত্র একটি বৈধ JSON রিটার্ন করবে]:\n{\n  \"reply_text\": \"কাস্টমারকে পাঠানোর মতো মিষ্টি ও আন্তরিক বাংলা বার্তা\",\n  \"is_order_confirmed\": true/false,\n  \"order_details\": {\n    \"customer_name\": \"গ্রাহকের নাম\",\n    \"customer_phone\": \"মোবাইল নম্বর\",\n    \"delivery_address\": \"পূর্ণ ঠিকানা\",\n    \"delivery_city\": \"Dhaka অথবা Outside Dhaka\",\n    \"product_title\": \"অর্ডারকৃত পণ্যের নাম\",\n    \"quantity\": 1,\n    \"unit_price\": 1200,\n    \"delivery_fee\": 80,\n    \"total_amount\": 1280\n  }\n}\n`;\n\nreturn {\n  json: {\n    ...input,\n    prepared_system_prompt: systemPrompt,\n    customer_query: customer.raw_message,\n  }\n};"
+      },
+      "name": "2. Context & Prompt Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "id": "prompt-builder-node"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": {{ JSON.stringify($json.prepared_system_prompt) }}\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"responseMimeType\": \"application/json\"\n  }\n}",
+        "options": {}
+      },
+      "name": "3. Google Gemini 2.5 Flash AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ],
+      "id": "gemini-ai-node"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Gemini AI structured JSON output\nconst geminiRes = $input.first().json;\nconst prev = $('2. Context & Prompt Builder').first().json;\n\nlet aiOutput = {};\ntry {\n  const rawText = geminiRes.candidates[0].content.parts[0].text;\n  aiOutput = JSON.parse(rawText);\n} catch (e) {\n  aiOutput = {\n    reply_text: 'ধন্যবাদ আপনার মেসেজের জন্য! আমাদের শপ ম্যানেজার শীঘ্রই যোগাযোগ করবে।',\n    is_order_confirmed: false,\n  };\n}\n\nconst isConfirmed = !!aiOutput.is_order_confirmed;\n\nreturn {\n  json: {\n    event_id: prev.event_id,\n    tenant_id: prev.tenant?.id,\n    channel_id: prev.channel?.id,\n    page_id: prev.channel?.page_id,\n    sender_id: prev.customer?.sender_id,\n    page_access_token: prev.channel?.page_access_token,\n    callback_url: prev.callback_url || 'http://localhost:3001/api/n8n/callback',\n    reply_text: aiOutput.reply_text || '',\n    is_order_confirmed: isConfirmed,\n    order_data: isConfirmed ? {\n      customer_name: aiOutput.order_details?.customer_name,\n      customer_phone: aiOutput.order_details?.customer_phone,\n      delivery_address: aiOutput.order_details?.delivery_address,\n      delivery_city: aiOutput.order_details?.delivery_city || 'Dhaka',\n      delivery_fee: aiOutput.order_details?.delivery_fee || 80,\n      subtotal: (aiOutput.order_details?.unit_price || 0) * (aiOutput.order_details?.quantity || 1),\n      total_amount: aiOutput.order_details?.total_amount,\n      items: [\n        {\n          title: aiOutput.order_details?.product_title || 'পণ্য',\n          quantity: aiOutput.order_details?.quantity || 1,\n          unit_price: aiOutput.order_details?.unit_price || 0,\n        }\n      ]\n    } : null\n  }\n};"
+      },
+      "name": "4. Parse AI & Order Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "id": "parse-intent-node"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_order_confirmed }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "5. Order Confirmed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "id": "order-decision-router"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "range": "Sheet1!A:H",
+        "options": {}
+      },
+      "name": "6. Google Sheets Log Order",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1360,
+        180
+      ],
+      "id": "google-sheets-node"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{{ $json.event_id }}\",\n  \"tenant_id\": \"{{ $json.tenant_id }}\",\n  \"channel_id\": \"{{ $json.channel_id }}\",\n  \"page_id\": \"{{ $json.page_id }}\",\n  \"sender_id\": \"{{ $json.sender_id }}\",\n  \"page_access_token\": \"{{ $json.page_access_token }}\",\n  \"reply_text\": {{ JSON.stringify($json.reply_text) }},\n  \"order_data\": {{ JSON.stringify($json.order_data) }},\n  \"google_sheet_synced\": true\n}",
+        "options": {}
+      },
+      "name": "7. Callback KothaShop (Order & Messenger)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1600,
+        180
+      ],
+      "id": "callback-order-node"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{{ $json.event_id }}\",\n  \"tenant_id\": \"{{ $json.tenant_id }}\",\n  \"channel_id\": \"{{ $json.channel_id }}\",\n  \"page_id\": \"{{ $json.page_id }}\",\n  \"sender_id\": \"{{ $json.sender_id }}\",\n  \"page_access_token\": \"{{ $json.page_access_token }}\",\n  \"reply_text\": {{ JSON.stringify($json.reply_text) }}\n}",
+        "options": {}
+      },
+      "name": "8. Callback KothaShop (Messenger Reply Only)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1360,
+        420
+      ],
+      "id": "callback-reply-node"
+    }
+  ],
+  "connections": {
+    "1. Ingest from KothaShop Gateway": {
+      "main": [
+        [
+          {
+            "node": "2. Context & Prompt Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Context & Prompt Builder": {
+      "main": [
+        [
+          {
+            "node": "3. Google Gemini 2.5 Flash AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Google Gemini 2.5 Flash AI": {
+      "main": [
+        [
+          {
+            "node": "4. Parse AI & Order Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Parse AI & Order Intent": {
+      "main": [
+        [
+          {
+            "node": "5. Order Confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Order Confirmed?": {
+      "main": [
+        [
+          {
+            "node": "6. Google Sheets Log Order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "8. Callback KothaShop (Messenger Reply Only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Google Sheets Log Order": {
+      "main": [
+        [
+          {
+            "node": "7. Callback KothaShop (Order & Messenger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
