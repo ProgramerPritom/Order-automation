@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
   const appUrl = process.env.APP_URL && !process.env.APP_URL.includes('localhost')
     ? process.env.APP_URL
     : requestOrigin;
-  const redirectUri = `${appUrl}/api/auth/whatsapp/callback`;
+  // Use the pre-whitelisted callback in Meta Developer Console
+  const redirectUri = `${appUrl}/api/auth/facebook/callback`;
 
   // WhatsApp Business permissions required by Meta
   const scopes = [
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
       tenantId: auth.tenantId,
       returnOrigin: requestOrigin,
       redirectUri,
+      platform: 'whatsapp',
       time: Date.now(),
     })
   ).toString('base64');

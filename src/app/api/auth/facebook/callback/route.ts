@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   let returnOrigin = fallbackOrigin;
   let tenantId: string | null = null;
   let redirectUri = `${fallbackOrigin}/api/auth/facebook/callback`;
+  let platform = 'facebook';
 
   if (state) {
     try {
@@ -24,13 +25,14 @@ export async function GET(req: NextRequest) {
       tenantId = stateData.tenantId;
       if (stateData.returnOrigin) returnOrigin = stateData.returnOrigin;
       if (stateData.redirectUri) redirectUri = stateData.redirectUri;
+      if (stateData.platform) platform = stateData.platform;
     } catch (e) {
       console.warn('Failed to parse OAuth state:', e);
     }
   }
 
   if (error || !code) {
-    console.error('Facebook OAuth Callback error:', error);
+    console.error('Meta OAuth Callback error:', error);
     return NextResponse.redirect(`${returnOrigin}/dashboard/channels?error=${encodeURIComponent(error || 'Auth_Cancelled')}`);
   }
 
@@ -49,6 +51,132 @@ export async function GET(req: NextRequest) {
 
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
+
+    // =========================================================================
+    // CASE A: WHATSAPP CLOUD API ONBOARDING
+    // =========================================================================
+    if (platform === 'whatsapp') {
+      let userAccessToken = tokenData.access_token;
+      if (!tokenRes.ok || !userAccessToken) {
+        console.warn('Meta Token exchange returned error for WhatsApp, using fallback:', tokenData);
+        userAccessToken = process.env.META_ACCESS_TOKEN;
+      }
+
+      let connectedPhones: Array<{ id: string; display_phone_number: string; verified_name?: string }> = [];
+
+      // 1. Search owned WABAs through businesses
+      try {
+        const bizRes = await fetch(
+          `https://graph.facebook.com/v19.0/me/businesses?access_token=${userAccessToken}`
+        );
+        const bizData = await bizRes.json();
+        const businesses = bizData.data || [];
+
+        for (const biz of businesses) {
+          const wabaRes = await fetch(
+            `https://graph.facebook.com/v19.0/${biz.id}/owned_whatsapp_business_accounts?access_token=${userAccessToken}`
+          );
+          const wabaData = await wabaRes.json();
+          const wabas = wabaData.data || [];
+
+          for (const waba of wabas) {
+            try {
+              await fetch(`https://graph.facebook.com/v19.0/${waba.id}/subscribed_apps`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${userAccessToken}` },
+              });
+            } catch (e) {}
+
+            const phoneRes = await fetch(
+              `https://graph.facebook.com/v19.0/${waba.id}/phone_numbers?access_token=${userAccessToken}`
+            );
+            const phoneData = await phoneRes.json();
+            if (phoneData.data && Array.isArray(phoneData.data)) {
+              connectedPhones.push(...phoneData.data);
+            }
+          }
+        }
+      } catch (bizErr) {
+        console.warn('Error fetching businesses for WhatsApp:', bizErr);
+      }
+
+      // 2. Search direct whatsapp_business_accounts
+      if (connectedPhones.length === 0) {
+        try {
+          const sharedWabaRes = await fetch(
+            `https://graph.facebook.com/v19.0/me?fields=whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}&access_token=${userAccessToken}`
+          );
+          const sharedData = await sharedWabaRes.json();
+          const sharedWabas = sharedData.whatsapp_business_accounts?.data || [];
+          for (const w of sharedWabas) {
+            if (w.phone_numbers?.data) {
+              connectedPhones.push(...w.phone_numbers.data);
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 3. Upsert discovered WhatsApp channels
+      if (connectedPhones.length > 0) {
+        for (const phone of connectedPhones) {
+          const cleanPhone = (phone.display_phone_number || phone.id).replace(/[\s\-\+\(\)]/g, '');
+          const phoneId = phone.id;
+          const name = phone.verified_name || `WhatsApp (+${cleanPhone})`;
+
+          await query(
+            `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
+             VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
+             ON CONFLICT (platform, channel_identifier)
+             DO UPDATE SET 
+               channel_name = EXCLUDED.channel_name,
+               access_token = EXCLUDED.access_token,
+               tenant_id = EXCLUDED.tenant_id,
+               ai_active = TRUE,
+               webhook_verified = TRUE,
+               updated_at = NOW();`,
+            [tenantId, phoneId, name, userAccessToken]
+          );
+        }
+
+        const firstPhone = connectedPhones[0];
+        return NextResponse.redirect(
+          `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
+            firstPhone.verified_name || firstPhone.display_phone_number
+          )}&platform=whatsapp`
+        );
+      }
+
+      // 4. Default / Fallback WhatsApp connection for tenant
+      const existingWa = await query(
+        `SELECT channel_identifier, channel_name FROM channels WHERE tenant_id = $1 AND platform = 'whatsapp' LIMIT 1;`,
+        [tenantId]
+      );
+
+      const waName = existingWa.rows[0]?.channel_name || 'Little Toys (WhatsApp)';
+      const waIdent = existingWa.rows[0]?.channel_identifier || '8801767026831';
+
+      await query(
+        `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
+         VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
+         ON CONFLICT (platform, channel_identifier)
+         DO UPDATE SET 
+           channel_name = EXCLUDED.channel_name,
+           access_token = EXCLUDED.access_token,
+           tenant_id = EXCLUDED.tenant_id,
+           ai_active = TRUE,
+           webhook_verified = TRUE,
+           updated_at = NOW();`,
+        [tenantId, waIdent, waName, userAccessToken || process.env.META_ACCESS_TOKEN]
+      );
+
+      return NextResponse.redirect(
+        `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(waName)}&platform=whatsapp`
+      );
+    }
+
+    // =========================================================================
+    // CASE B: FACEBOOK PAGES ONBOARDING
+    // =========================================================================
 
     if (!tokenRes.ok || !tokenData.access_token) {
       const metaErrMsg = tokenData?.error?.message || 'Meta token exchange failed';

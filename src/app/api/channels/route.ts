@@ -130,11 +130,14 @@ export async function PATCH(req: NextRequest) {
     );
 
     if (res.rows.length === 0) {
-      return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+      return NextResponse.json({ error: 'চ্যানেলটি খুঁজে পাওয়া যায়নি।' }, { status: 404 });
     }
 
     return NextResponse.json({
       success: true,
+      message: ai_active
+        ? `"${res.rows[0].channel_name}"-এর এআই সফলভাবে চালু করা হয়েছে!`
+        : `"${res.rows[0].channel_name}"-এর এআই সম্পূর্ণ বন্ধ (OFF) করা হয়েছে।`,
       channel: res.rows[0],
     });
   } catch (error: any) {
@@ -160,6 +163,29 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Channel ID is required' }, { status: 400 });
     }
 
+    // 1. Detach orders so they remain intact in store records
+    await query(
+      `UPDATE orders SET channel_id = NULL WHERE channel_id = $1 AND tenant_id = $2;`,
+      [channelId, auth.tenantId]
+    );
+
+    // 2. Cascade cleanup related comments, posts, and conversations
+    await query(
+      `DELETE FROM facebook_comments WHERE channel_id = $1 AND tenant_id = $2;`,
+      [channelId, auth.tenantId]
+    );
+
+    await query(
+      `DELETE FROM facebook_posts WHERE channel_id = $1 AND tenant_id = $2;`,
+      [channelId, auth.tenantId]
+    );
+
+    await query(
+      `DELETE FROM conversations WHERE channel_id = $1 AND tenant_id = $2;`,
+      [channelId, auth.tenantId]
+    );
+
+    // 3. Delete the channel itself
     const res = await query(
       `DELETE FROM channels 
        WHERE id = $1 AND tenant_id = $2
@@ -168,17 +194,17 @@ export async function DELETE(req: NextRequest) {
     );
 
     if (res.rows.length === 0) {
-      return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+      return NextResponse.json({ error: 'চ্যানেলটি খুঁজে পাওয়া যায়নি।' }, { status: 404 });
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Channel disconnected successfully',
+      message: `"${res.rows[0].channel_name}" সফলভাবে সংযোগ বিচ্ছিন্ন (Disconnected) করা হয়েছে।`,
       deleted: res.rows[0],
     });
   } catch (error: any) {
     console.error('Delete channel error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
 

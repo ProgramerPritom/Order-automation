@@ -39,6 +39,7 @@ export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [masterStatus, setMasterStatus] = useState<any>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(true);
 
@@ -74,8 +75,8 @@ export default function ChannelsPage() {
       const isWa = params.get('platform') === 'whatsapp';
       setOauthSuccessMessage(
         isWa
-          ? `🎉 অভিনন্দন! আপনার "${pageName}" সফলভাবে মেটা দিয়ে সংযুক্ত হয়েছে এবং হোয়াটসঅ্যাপ এআই সক্রিয়!`
-          : `🎉 অভিনন্দন! আপনার "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`
+          ? `🎉 অভিনন্দন! "${pageName}" সফলভাবে মেটা দিয়ে সংযুক্ত হয়েছে এবং হোয়াটসঅ্যাপ এআই সক্রিয়!`
+          : `🎉 অভিনন্দন! "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`
       );
       setOauthSuccess(true);
       setOauthError(null);
@@ -172,7 +173,7 @@ export default function ChannelsPage() {
 
     try {
       const token = getSessionToken();
-      await fetch('/api/channels', {
+      const res = await fetch('/api/channels', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -183,8 +184,28 @@ export default function ChannelsPage() {
           ai_active: newStatus,
         }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        // Revert on failure
+        setChannels((prev) =>
+          prev.map((c) => (c.id === channel.id ? { ...c, ai_active: channel.ai_active } : c))
+        );
+        alert(data.error || 'এআই স্ট্যাটাস পরিবর্তন করা যায়নি');
+      } else {
+        setOauthSuccessMessage(
+          newStatus
+            ? `🟢 "${channel.channel_name}"-এর এআই সফলভাবে চালু করা হয়েছে!`
+            : `🔴 "${channel.channel_name}"-এর এআই সম্পূর্ণ বন্ধ (OFF) করা হয়েছে। কোনো অটো-রিপ্লাই যাবে না।`
+        );
+        setOauthSuccess(true);
+        setOauthError(null);
+        setTimeout(() => setOauthSuccess(false), 5000);
+      }
     } catch (e) {
       console.error('Failed to toggle AI status in DB:', e);
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channel.id ? { ...c, ai_active: channel.ai_active } : c))
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -199,22 +220,36 @@ export default function ChannelsPage() {
   };
 
   const handleDeleteChannel = async (channelId: string, name: string) => {
-    if (!confirm(`আপনি কি "${name}" চ্যানেলটি সংযোগ বিচ্ছিন্ন (Disconnect) করতে চান?`)) return;
+    if (
+      !confirm(
+        `আপনি কি নিশ্চিত যে "${name}" পেজটি সংযোগ বিচ্ছিন্ন (Disconnect) করতে চান? নিশ্চিত করলে এই পেজটি ড্যাশবোর্ড থেকে মুছে যাবে।`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(channelId);
     try {
       const token = getSessionToken();
       const res = await fetch(`/api/channels?channelId=${channelId}`, {
         method: 'DELETE',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      const data = await res.json();
       if (res.ok) {
         setChannels((prev) => prev.filter((c) => c.id !== channelId));
+        setOauthSuccessMessage(data.message || `"${name}" চ্যানেলটি সফলভাবে মুছে ফেলা হয়েছে।`);
+        setOauthSuccess(true);
+        setOauthError(null);
+        setTimeout(() => setOauthSuccess(false), 6000);
       } else {
-        const data = await res.json();
         alert(data.error || 'চ্যানেল ডিলিট করা যায়নি।');
       }
     } catch (e: any) {
       console.error('Delete channel error:', e);
       alert(e.message || 'চ্যানেল ডিলিট করা যায়নি।');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -654,32 +689,37 @@ export default function ChannelsPage() {
             .map((c) => (
               <div
                 key={c.id}
-                className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group"
+                className={`bg-white rounded-3xl p-6 sm:p-7 border transition-all shadow-sm flex flex-col justify-between relative overflow-hidden group ${
+                  c.ai_active ? 'border-slate-200/80 hover:shadow-md' : 'border-rose-200 bg-rose-50/10 hover:shadow-md'
+                }`}
               >
-                <div className="absolute top-0 right-0 w-28 h-28 bg-blue-50/50 rounded-full blur-2xl -mr-10 -mt-10" />
+                <div className={`absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-10 -mt-10 ${c.ai_active ? 'bg-blue-50/50' : 'bg-rose-100/40'}`} />
 
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xl shadow-sm">
                       f
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {/* Clear AI Active Badge */}
                       <span
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-                          c.webhook_verified
+                          c.ai_active
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
                         }`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${
-                            c.webhook_verified ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                            c.ai_active ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
                           }`}
                         />
-                        <span>{c.webhook_verified ? 'Webhook সচল' : 'পেন্ডিং'}</span>
+                        <span>{c.ai_active ? '🟢 এআই চালু (ON)' : '🔴 এআই সম্পূর্ণ বন্ধ (OFF)'}</span>
                       </span>
+
                       <button
                         onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                        disabled={deletingId === c.id}
                         title="পেজ ডিসকানেক্ট করুন"
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                       >
@@ -697,26 +737,37 @@ export default function ChannelsPage() {
                       <span className="font-bold text-slate-800">Facebook Messenger</span>
                     </div>
                     <div className="flex justify-between py-1 text-slate-600">
-                      <span>কমেন্ট অটোমেশন:</span>
-                      <span className="font-bold text-indigo-600">সক্রিয় (Active)</span>
+                      <span>কমেন্ট ও মেসেজ এআই:</span>
+                      <span className={`font-bold ${c.ai_active ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {c.ai_active ? 'সক্রিয় (Active)' : 'সাময়িক বন্ধ (Paused)'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1 text-slate-600">
+                      <span>Webhook সংযোগ:</span>
+                      <span className="font-bold text-slate-700">
+                        {c.webhook_verified ? '✅ ভেরিফাইড' : '⚠️ পেন্ডিং'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* AI Auto-Reply Switch & Live Test Button */}
+                {/* Controls: AI ON/OFF Toggle, Test, and Disconnect */}
                 <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200/60">
                     <div>
-                      <p className="text-xs font-bold text-slate-900">এআই সেলস কনসালট্যান্ট</p>
+                      <p className="text-xs font-bold text-slate-900">
+                        {c.ai_active ? 'এআই চালু আছে' : 'এআই অফ করা আছে'}
+                      </p>
                       <p className="text-[10px] text-slate-500">
-                        {c.ai_active ? 'স্বয়ংক্রিয় অর্ডার গ্রহণ করছে' : 'এআই বর্তমানে মিউট আছে'}
+                        {c.ai_active ? 'অর্ডার ও মেসেজে স্বয়ংক্রিয় রিপ্লাই যাবে' : 'কোনো স্বয়ংক্রিয় মেসেজ যাবে না'}
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => toggleAi(c)}
                       disabled={updatingId === c.id}
                       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
+                        c.ai_active ? 'bg-emerald-600' : 'bg-slate-300'
                       }`}
                     >
                       <span
@@ -727,6 +778,27 @@ export default function ChannelsPage() {
                     </button>
                   </div>
 
+                  {/* Fast Action Buttons */}
+                  <button
+                    type="button"
+                    onClick={() => toggleAi(c)}
+                    disabled={updatingId === c.id}
+                    className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                      c.ai_active
+                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>
+                      {updatingId === c.id
+                        ? 'আপডেট হচ্ছে...'
+                        : c.ai_active
+                        ? '⏸️ এআই অফ করুন (Pause AI)'
+                        : '▶️ এআই চালু করুন (Turn ON)'}
+                    </span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => openTestModal(c)}
@@ -734,6 +806,16 @@ export default function ChannelsPage() {
                   >
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                     <span>🧪 ফেসবুক এআই টেস্ট করুন</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                    disabled={deletingId === c.id}
+                    className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{deletingId === c.id ? 'ডিসকানেক্ট হচ্ছে...' : '🗑️ পেজ ডিসকানেক্ট / ডিলিট করুন'}</span>
                   </button>
                 </div>
               </div>
@@ -745,22 +827,35 @@ export default function ChannelsPage() {
             .map((c) => (
               <div
                 key={c.id}
-                className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden"
+                className={`bg-white rounded-3xl p-6 sm:p-7 border transition-all shadow-sm flex flex-col justify-between relative overflow-hidden ${
+                  c.ai_active ? 'border-slate-200/80 hover:shadow-md' : 'border-rose-200 bg-rose-50/10 hover:shadow-md'
+                }`}
               >
-                <div className="absolute top-0 right-0 w-28 h-28 bg-pink-50/50 rounded-full blur-2xl -mr-10 -mt-10" />
+                <div className={`absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-10 -mt-10 ${c.ai_active ? 'bg-pink-50/50' : 'bg-rose-100/40'}`} />
 
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
                       IG
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>সক্রিয়</span>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                          c.ai_active
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            c.ai_active ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                          }`}
+                        />
+                        <span>{c.ai_active ? '🟢 এআই চালু (ON)' : '🔴 এআই সম্পূর্ণ বন্ধ (OFF)'}</span>
                       </span>
                       <button
                         onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                        disabled={deletingId === c.id}
                         title="চ্যানেল ডিসকানেক্ট করুন"
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                       >
@@ -778,22 +873,27 @@ export default function ChannelsPage() {
                       <span className="font-bold text-slate-800">Instagram Direct DM</span>
                     </div>
                     <div className="flex justify-between py-1 text-slate-600">
-                      <span>পোস্ট কমেন্ট সিঙ্ক:</span>
-                      <span className="font-bold text-pink-600">সক্রিয় (Active)</span>
+                      <span>ডিএম ও কমেন্ট এআই:</span>
+                      <span className={`font-bold ${c.ai_active ? 'text-pink-600' : 'text-rose-600'}`}>
+                        {c.ai_active ? 'সক্রিয় (Active)' : 'সাময়িক বন্ধ (Paused)'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* AI Auto-Reply Switch */}
+                {/* Controls: AI ON/OFF Toggle, Test, and Disconnect */}
                 <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200/60">
                     <div>
-                      <p className="text-xs font-bold text-slate-900">এআই অটো-রিপ্লাই</p>
+                      <p className="text-xs font-bold text-slate-900">
+                        {c.ai_active ? 'এআই চালু আছে' : 'এআই অফ করা আছে'}
+                      </p>
                       <p className="text-[10px] text-slate-500">
                         {c.ai_active ? 'ডিএম ও কমেন্টে উত্তর দিচ্ছে' : 'বট সাময়িকভাবে বন্ধ আছে'}
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => toggleAi(c)}
                       disabled={updatingId === c.id}
                       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
@@ -810,11 +910,41 @@ export default function ChannelsPage() {
 
                   <button
                     type="button"
+                    onClick={() => toggleAi(c)}
+                    disabled={updatingId === c.id}
+                    className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                      c.ai_active
+                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>
+                      {updatingId === c.id
+                        ? 'আপডেট হচ্ছে...'
+                        : c.ai_active
+                        ? '⏸️ এআই অফ করুন (Pause AI)'
+                        : '▶️ এআই চালু করুন (Turn ON)'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => openTestModal(c)}
                     className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                     <span>🧪 ইনস্টাগ্রাম এআই টেস্ট করুন</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                    disabled={deletingId === c.id}
+                    className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{deletingId === c.id ? 'ডিসকানেক্ট হচ্ছে...' : '🗑️ ইনস্টাগ্রাম ডিসকানেক্ট করুন'}</span>
                   </button>
                 </div>
               </div>
@@ -830,22 +960,35 @@ export default function ChannelsPage() {
               return (
                 <div
                   key={c.id}
-                  className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group"
+                  className={`bg-white rounded-3xl p-6 sm:p-7 border transition-all shadow-sm flex flex-col justify-between relative overflow-hidden group ${
+                    c.ai_active ? 'border-slate-200/80 hover:shadow-md' : 'border-rose-200 bg-rose-50/10 hover:shadow-md'
+                  }`}
                 >
-                  <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-50/50 rounded-full blur-2xl -mr-10 -mt-10" />
+                  <div className={`absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-10 -mt-10 ${c.ai_active ? 'bg-emerald-50/50' : 'bg-rose-100/40'}`} />
 
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
                         💬
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>সক্রিয়</span>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            c.ai_active
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              c.ai_active ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                            }`}
+                          />
+                          <span>{c.ai_active ? '🟢 এআই চালু (ON)' : '🔴 এআই সম্পূর্ণ বন্ধ (OFF)'}</span>
                         </span>
                         <button
                           onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                          disabled={deletingId === c.id}
                           title="চ্যানেল ডিসকানেক্ট করুন"
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                         >
@@ -863,8 +1006,8 @@ export default function ChannelsPage() {
                     {/* Smart wa.me Order Link */}
                     <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl space-y-2">
                       <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-emerald-900">স্মার্ট WhatsApp অর্ডার লিঙ্ক:</span>
-                        <span className="text-[10px] text-emerald-700 font-medium">পেজ/পোস্টে ব্যবহারযোগ্য</span>
+                        <span className="font-bold text-emerald-900">স্মার্ট WhatsApp লিঙ্ক:</span>
+                        <span className="text-[10px] text-emerald-700 font-medium">কাস্টমারকে পাঠানোর লিঙ্ক</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-xl border border-emerald-200">
                         <span className="font-mono text-[10px] text-slate-600 truncate flex-1 pl-1">
@@ -905,22 +1048,27 @@ export default function ChannelsPage() {
                         <span className="font-bold text-slate-800">WhatsApp Commerce Hub</span>
                       </div>
                       <div className="flex justify-between py-0.5 text-slate-600">
-                        <span>এআই অর্ডার ট্র্যাকিং:</span>
-                        <span className="font-bold text-emerald-600">স্বয়ংক্রিয় (Enabled)</span>
+                        <span>অটো-রিপ্লাই ও সেলস এআই:</span>
+                        <span className={`font-bold ${c.ai_active ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {c.ai_active ? 'সক্রিয় (Active)' : 'সাময়িক বন্ধ (Paused)'}
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* AI Auto-Reply Switch & Live Test Button */}
+                  {/* Controls: AI ON/OFF Toggle, Test, and Disconnect */}
                   <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200/60">
                       <div>
-                        <p className="text-xs font-bold text-slate-900">এআই সেলস এজেন্ট</p>
+                        <p className="text-xs font-bold text-slate-900">
+                          {c.ai_active ? 'হোয়াটসঅ্যাপ এআই চালু' : 'হোয়াটসঅ্যাপ এআই অফ'}
+                        </p>
                         <p className="text-[10px] text-slate-500">
                           {c.ai_active ? 'গ্রাহকের মেসেজে স্বয়ংক্রিয় উত্তর দিচ্ছে' : 'এআই বর্তমানে বন্ধ আছে'}
                         </p>
                       </div>
                       <button
+                        type="button"
                         onClick={() => toggleAi(c)}
                         disabled={updatingId === c.id}
                         className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
@@ -937,11 +1085,41 @@ export default function ChannelsPage() {
 
                     <button
                       type="button"
+                      onClick={() => toggleAi(c)}
+                      disabled={updatingId === c.id}
+                      className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                        c.ai_active
+                          ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                      <span>
+                        {updatingId === c.id
+                          ? 'আপডেট হচ্ছে...'
+                          : c.ai_active
+                          ? '⏸️ এআই অফ করুন (Pause AI)'
+                          : '▶️ এআই চালু করুন (Turn ON)'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => openTestModal(c)}
                       className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
                     >
                       <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                       <span>🧪 হোয়াটসঅ্যাপ এআই টেস্ট করুন</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                      disabled={deletingId === c.id}
+                      className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                      <span>{deletingId === c.id ? 'ডিসকানেক্ট হচ্ছে...' : '🗑️ হোয়াটসঅ্যাপ ডিসকানেক্ট / রিমুভ করুন'}</span>
                     </button>
                   </div>
                 </div>
