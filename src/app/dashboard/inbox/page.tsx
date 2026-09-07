@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PaginationControl from '@/components/ui/PaginationControl';
 import { getSessionToken } from '@/lib/session';
 import {
@@ -45,6 +45,7 @@ export default function LiveInboxPage() {
   const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activePlatform, setActivePlatform] = useState<'all' | 'facebook' | 'instagram' | 'whatsapp'>('all');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -53,6 +54,11 @@ export default function LiveInboxPage() {
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 15;
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [selectedConv?.messages]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -289,11 +295,11 @@ export default function LiveInboxPage() {
         </div>
       </div>
 
-      {/* Main Grid: Chat List + Active Thread */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[640px] bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+      {/* Main Grid: Chat List + Active Thread (Viewport-Adaptive Height) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 h-[calc(100vh-210px)] min-h-[500px] bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
         {/* Conversations List (4 cols) */}
-        <div className="lg:col-span-4 border-r border-slate-200 flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+        <div className="lg:col-span-4 border-r border-slate-200 flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
             <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
               {activePlatform === 'all'
                 ? 'সকল ইনবক্স চ্যাট'
@@ -380,21 +386,23 @@ export default function LiveInboxPage() {
           </div>
 
           {/* Cursor Pagination Controls */}
-          <PaginationControl
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalCount={totalCount}
-            hasMore={hasMore}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
-            loading={loading}
-            itemLabel="চ্যাট"
-          />
+          <div className="shrink-0 border-t border-slate-100">
+            <PaginationControl
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={totalCount}
+              hasMore={hasMore}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
+              loading={loading}
+              itemLabel="চ্যাট"
+            />
+          </div>
         </div>
 
         {/* Active Conversation Thread (8 cols) */}
         {selectedConv ? (
-          <div className="lg:col-span-8 flex flex-col justify-between h-full bg-slate-50/30">
+          <div className="lg:col-span-8 flex flex-col justify-between h-full bg-slate-50/30 overflow-hidden">
             {/* Thread Header */}
             <div className="p-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
@@ -456,42 +464,45 @@ export default function LiveInboxPage() {
             )}
 
             {/* Messages Area (Real Multi-Turn Messages) */}
-            <div className="flex-1 p-6 overflow-y-auto space-y-4">
+            <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
               {selectedConv.messages && selectedConv.messages.length > 0 ? (
-                selectedConv.messages.map((msg) => {
-                  const isCustomer = msg.sender_type === 'customer';
-                  const isHuman = msg.sender_type === 'human_agent';
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end ml-auto'} max-w-md`}
-                    >
+                <>
+                  {selectedConv.messages.map((msg) => {
+                    const isCustomer = msg.sender_type === 'customer';
+                    const isHuman = msg.sender_type === 'human_agent';
+                    return (
                       <div
-                        className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs ${
-                          isCustomer
-                            ? 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
-                            : isHuman
-                            ? 'bg-emerald-600 text-white rounded-tr-none'
-                            : 'bg-indigo-600 text-white rounded-tr-none'
-                        }`}
+                        key={msg.id}
+                        className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end ml-auto'} max-w-md`}
                       >
-                        {msg.content}
+                        <div
+                          className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs ${
+                            isCustomer
+                              ? 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
+                              : isHuman
+                              ? 'bg-emerald-600 text-white rounded-tr-none'
+                              : 'bg-indigo-600 text-white rounded-tr-none'
+                          }`}
+                        >
+                          {msg.content}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-1 px-1">
+                          {!isCustomer && (
+                            isHuman ? <UserCheck className="w-3 h-3 text-emerald-600" /> : <Bot className="w-3 h-3 text-indigo-500" />
+                          )}
+                          <span>
+                            {isCustomer ? 'Customer' : isHuman ? 'Human Agent (You)' : 'AI Sales Agent'} •{' '}
+                            {new Date(msg.created_at).toLocaleTimeString('bn-BD', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-1 px-1">
-                        {!isCustomer && (
-                          isHuman ? <UserCheck className="w-3 h-3 text-emerald-600" /> : <Bot className="w-3 h-3 text-indigo-500" />
-                        )}
-                        <span>
-                          {isCustomer ? 'Customer' : isHuman ? 'Human Agent (You)' : 'AI Sales Agent'} •{' '}
-                          {new Date(msg.created_at).toLocaleTimeString('bn-BD', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </>
               ) : (
                 <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center">
                   <p>এই কথোপকথনে কোনো বার্তা রেকর্ড নেই</p>
@@ -499,8 +510,8 @@ export default function LiveInboxPage() {
               )}
             </div>
 
-            {/* Input Bar */}
-            <div className="p-4 bg-white border-t border-slate-200 shrink-0">
+            {/* Input Bar (Pinned at bottom, always visible) */}
+            <div className="p-3 sm:p-4 bg-white border-t border-slate-200 shrink-0">
               <form onSubmit={handleSendReply} className="flex items-center gap-2">
                 <input
                   type="text"

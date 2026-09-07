@@ -226,16 +226,16 @@ export default function DashboardLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-slate-100 flex">
+    <div className="h-screen max-h-screen overflow-hidden bg-slate-100 flex">
       
       {/* Sidebar for Desktop */}
       <aside
         className={`hidden lg:flex lg:flex-col ${
           isCollapsed ? 'lg:w-20' : 'lg:w-64'
-        } bg-slate-900 text-white border-r border-slate-800 shrink-0 transition-all duration-300 ease-in-out`}
+        } h-screen max-h-screen bg-slate-900 text-white border-r border-slate-800 shrink-0 transition-all duration-300 ease-in-out`}
       >
         {/* Brand Header */}
-        <div className={`p-4 border-b border-slate-800 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+        <div className={`p-4 border-b border-slate-800 shrink-0 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
           <div className="flex items-center justify-between">
             <Link href="/dashboard" className="flex items-center space-x-3 overflow-hidden">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
@@ -432,10 +432,10 @@ export default function DashboardLayout({
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col h-screen max-h-screen min-w-0 overflow-hidden">
         
         {/* Top Navbar */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between shrink-0">
+        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-3">
             {/* Mobile Menu Button */}
             <button

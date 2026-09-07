@@ -282,11 +282,11 @@ export default function CommentsPage() {
         </div>
       </div>
 
-      {/* Main Container: Posts List (4 cols) + Comments Stream (8 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
+      {/* Main Container: Posts List (4 cols) + Comments Stream (8 cols) - Viewport Adaptive */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px] lg:h-[calc(100vh-270px)] lg:min-h-[520px]">
         {/* Posts List */}
-        <div className="lg:col-span-4 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+        <div className="lg:col-span-4 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
             <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
               {platformFilter === 'all'
                 ? 'সকল পোস্ট'
@@ -354,20 +354,22 @@ export default function CommentsPage() {
           </div>
 
           {/* Cursor Pagination Controls */}
-          <PaginationControl
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalCount={totalCount}
-            hasMore={hasMore}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
-            loading={loading}
-            itemLabel="পোস্ট"
-          />
+          <div className="shrink-0 border-t border-slate-100">
+            <PaginationControl
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={totalCount}
+              hasMore={hasMore}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
+              loading={loading}
+              itemLabel="পোস্ট"
+            />
+          </div>
         </div>
 
         {/* Comments Detail Stream */}
-        <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+        <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
           {selectedPost ? (
             <>
               {/* Post Header Banner */}
