@@ -22,6 +22,9 @@ yarn-error.log*
 .gemini
 .opencode
 
+# WhatsApp Session Auth
+baileys_auth/
+
 # IDE and Editors
 **/.idea/
 **/.vscode/

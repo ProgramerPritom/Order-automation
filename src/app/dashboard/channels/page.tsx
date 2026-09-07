@@ -256,12 +256,21 @@ export default function ChannelsPage() {
   const openTestModal = async (channel: Channel) => {
     setTestingChannel(channel);
     setTestMessage('');
-    setTestHistory([
-      {
-        sender: 'ai',
-        text: `নমস্কার/সালাম! আমি "${channel.channel_name}"-এর এআই সেলস কনসালট্যান্ট। আপনি যেকোনো প্রশ্ন জিজ্ঞেস করতে পারেন অথবা প্রোডাক্টের সাইজ ও ঠিকানা দিয়ে টেস্ট অর্ডার করতে পারেন!`,
-      },
-    ]);
+    if (channel.platform === 'whatsapp') {
+      setTestHistory([
+        {
+          sender: 'ai',
+          text: `👋 আসসালামু আলাইকুম! আমি আপনার "${channel.channel_name}"-এর পার্সোনাল WhatsApp এআই ম্যানেজার।\n\nআপনি "মেনু", "অর্ডার", "স্টক", "বিক্রি" লিখে পাঠাতে পারেন অথবা যেকোনো স্বাভাবিক প্রশ্ন জিজ্ঞেস করতে পারেন!`,
+        },
+      ]);
+    } else {
+      setTestHistory([
+        {
+          sender: 'ai',
+          text: `নমস্কার/সালাম! আমি "${channel.channel_name}"-এর এআই সেলস কনসালট্যান্ট। আপনি যেকোনো প্রশ্ন জিজ্ঞেস করতে পারেন অথবা প্রোডাক্টের সাইজ ও ঠিকানা দিয়ে টেস্ট অর্ডার করতে পারেন!`,
+        },
+      ]);
+    }
 
     try {
       const token = getSessionToken();
@@ -287,18 +296,31 @@ export default function ChannelsPage() {
 
     try {
       const token = getSessionToken();
-      const res = await fetch('/api/channels/test-message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          channelId: testingChannel.id,
-          messageText: msg,
-          customerPhone: testSenderPhone,
-        }),
-      });
+      let res;
+      if (testingChannel.platform === 'whatsapp') {
+        res = await fetch('/api/whatsapp-copilot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderPhone: testSenderPhone,
+            messageText: msg,
+          }),
+        });
+      } else {
+        res = await fetch('/api/channels/test-message', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            channelId: testingChannel.id,
+            messageText: msg,
+            customerPhone: testSenderPhone,
+          }),
+        });
+      }
+
       const data = await res.json();
       if (data.replyText) {
         setTestHistory((prev) => [
@@ -485,6 +507,24 @@ export default function ChannelsPage() {
             <span>১-ক্লিকে হোয়াটসঅ্যাপ কানেক্ট</span>
           </button>
 
+          {/* WhatsApp Copilot QR Runner & Test Button */}
+          <button
+            onClick={() =>
+              openTestModal({
+                id: 'whatsapp-copilot-bot',
+                platform: 'whatsapp',
+                channel_identifier: '01712345678',
+                channel_name: 'WhatsApp AI Manager',
+                ai_active: true,
+                webhook_verified: true,
+                quality_rating: 'GREEN',
+              })
+            }
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 shadow-md shadow-emerald-600/20 transition-all"
+          >
+            <span>📱</span>
+            <span>WhatsApp সহকারী (QR ও টেস্ট)</span>
+          </button>
 
           <button
             onClick={() => {
@@ -1415,25 +1455,68 @@ export default function ChannelsPage() {
               </button>
             </div>
 
+            {/* WhatsApp Copilot Info Banner */}
+            {testingChannel.platform === 'whatsapp' && (
+              <div className="mt-3 p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200/80 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-emerald-950 flex items-center gap-1.5">
+                    <span>📱</span>
+                    <span>WhatsApp ওনার সহকারী মোড (Zero-Login AI Manager)</span>
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-200/60 text-emerald-800 text-[10px] font-bold rounded-md">
+                    Terminal QR + Webhook Ready
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  মেটা ক্লাউড এপিআই ভেরিফিকেশন ছাড়া যেকোনো বাংলাদেশি সিম দিয়ে চালাতে আপনার পিসি বা সার্ভার টার্মিনালে রান করুন:{' '}
+                  <code className="bg-white px-1.5 py-0.5 rounded text-emerald-900 font-mono font-bold border border-emerald-300">
+                    npm run bot:whatsapp
+                  </code>
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-emerald-200/60 text-[11px]">
+                  <span className="text-emerald-950 font-bold">শপ ওনার মোবাইল নম্বর:</span>
+                  <input
+                    type="text"
+                    value={testSenderPhone}
+                    onChange={(e) => setTestSenderPhone(e.target.value)}
+                    placeholder="01712345678"
+                    className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-white font-mono text-xs w-36 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <span className="text-[10px] text-emerald-700">
+                    (ডাটাবেজের নম্বর মিলিয়ে স্বয়ংক্রিয়ভাবে ঐ শপের লাইভ ডাটা লোড করে)
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Quick Test Message Suggestions */}
             <div className="py-3 border-b border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                 ক্লিক করে টেস্ট মেসেজ দিন:
               </p>
               <div className="flex flex-wrap gap-1.5 text-[11px]">
-                {(storeContext?.suggestions || [
-                  'ভাইয়া ডেলিভারি চার্জ কত এবং ঢাকায় কতদিন সময় লাগে?',
-                  'আপনাদের স্টকে কী কী পণ্য আছে?',
-                  'আমার নাম কবির হোসেন, মিরপুর ১০ ঢাকা, ফোন ০১৮৯৯১১২২৩৩, ক্যাশ অন ডেলিভারিতে ১টি আইটেম পাঠান।',
-                ]).map((sug: string, i: number) => (
+                {(testingChannel.platform === 'whatsapp'
+                  ? [
+                      'অর্ডার',
+                      'স্টক',
+                      'বিক্রি',
+                      'পেজ',
+                      'আজকের মোট বিক্রি ও লাভ কত?',
+                      'লাস্ট অর্ডারটা কার?',
+                    ]
+                  : storeContext?.suggestions || [
+                      'ভাইয়া ডেলিভারি চার্জ কত এবং ঢাকায় কতদিন সময় লাগে?',
+                      'আপনাদের স্টকে কী কী পণ্য আছে?',
+                      'আমার নাম কবির হোসেন, মিরপুর ১০ ঢাকা, ফোন ০১৮৯৯১১২২৩৩, ক্যাশ অন ডেলিভারিতে ১টি আইটেম পাঠান।',
+                    ]
+                ).map((sug: string, i: number) => (
                   <button
                     key={i}
                     type="button"
                     onClick={() => setTestMessage(sug)}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors text-left"
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 transition-colors text-left font-medium"
                   >
-                    {i === 0 ? '🚚 ' : i === 1 ? '🛍️ ' : '📦 '}
-                    <span>{sug.length > 40 ? sug.slice(0, 40) + '...' : sug}</span>
+                    <span>{sug}</span>
                   </button>
                 ))}
               </div>
