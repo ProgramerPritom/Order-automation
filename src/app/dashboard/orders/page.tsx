@@ -208,10 +208,42 @@ export default function OrdersPage() {
     }
   };
 
-  // 1-Click Send to Courier
+  // 1-Click Send to Steadfast / Pathao Courier
   const handleSendToCourier = async (order: Order) => {
-    showNotice(`🚚 ${order.customer_name}-এর অর্ডারটি পাঠাও কুরিয়ারে বুক করা হয়েছে!`);
-    handleStatusChange(order.id, 'shipped');
+    try {
+      const token = getSessionToken();
+      showNotice(`🚚 ${order.customer_name}-এর পার্সেলটি স্টেডফাস্ট কুরিয়ারে বুকিং করা হচ্ছে...`);
+      
+      const res = await fetch('/api/orders/courier', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId: order.id, courier: 'steadfast' }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Courier booking failed');
+
+      // Update state in real-time
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                status: 'shipped',
+                courier_name: data.courierName,
+                courier_status: `In Transit (${data.trackingCode})`,
+              }
+            : o
+        )
+      );
+
+      showNotice(`🎉 ${data.message}`);
+    } catch (err: any) {
+      showNotice(`❌ কুরিয়ার বুকিং ব্যর্থ: ${err.message}`);
+    }
   };
 
   const showNotice = (msg: string) => {
@@ -908,57 +940,91 @@ export default function OrdersPage() {
       {/* PRINTABLE INVOICE MODAL */}
       {printingOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl border border-slate-200 text-slate-900">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
+          <div
+            id="printable-invoice"
+            className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl border border-slate-200 text-slate-900"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b-2 border-indigo-600 mb-6">
               <div>
-                <h2 className="text-xl font-black text-indigo-600">KothaShop.ai</h2>
-                <p className="text-[10px] text-slate-400">অর্ডার চালান / ক্যাশ মেমো</p>
+                <h2 className="text-2xl font-black text-indigo-600 tracking-tight">KothaShop.ai</h2>
+                <p className="text-[11px] font-bold text-slate-600 mt-0.5">
+                  {printingOrder.channel_name || 'অফিসিয়াল মার্চেন্ট স্টোর'} • চালান / ক্যাশ মেমো
+                </p>
               </div>
-              <button
-                onClick={() => setPrintingOrder(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span className="inline-block px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 font-extrabold text-[10px] border border-emerald-200 uppercase">
+                    ক্যাশ অন ডেলিভারি (COD)
+                  </span>
+                </div>
+                <button
+                  onClick={() => setPrintingOrder(null)}
+                  className="no-print p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            {/* Memo Content */}
+            {/* Memo Metadata */}
             <div className="space-y-4 text-xs">
-              <div className="flex justify-between border-b pb-3 border-slate-100">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
                 <div>
-                  <p className="text-slate-400">অর্ডার নম্বর:</p>
-                  <p className="font-extrabold text-slate-900">#{printingOrder.order_number}</p>
+                  <p className="text-slate-500 text-[10px] font-bold uppercase">অর্ডার ট্র্যাকিং নম্বর</p>
+                  <p className="font-mono font-black text-base text-slate-900">#{printingOrder.order_number}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-slate-400">তারিখ:</p>
+                  <p className="text-slate-500 text-[10px] font-bold uppercase">অর্ডারের তারিখ ও সময়</p>
                   <p className="font-bold text-slate-800">
-                    {new Date(printingOrder.created_at).toLocaleDateString('bn-BD')}
+                    {new Date(printingOrder.created_at).toLocaleDateString('bn-BD', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
                   </p>
                 </div>
               </div>
 
-              <div>
-                <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">কাস্টমার তথ্য</p>
+              {/* Customer Info Box */}
+              <div className="p-3.5 border border-slate-200 rounded-xl space-y-1">
+                <p className="text-slate-500 text-[10px] uppercase font-extrabold tracking-wider">ডেলিভারি গ্রহীতার তথ্য</p>
                 <p className="font-black text-sm text-slate-900">{printingOrder.customer_name}</p>
-                <p className="text-slate-700">{printingOrder.customer_phone}</p>
-                <p className="text-slate-600">{printingOrder.delivery_address}, {printingOrder.district || ''}</p>
+                <div className="flex items-center gap-2 text-slate-700 font-medium">
+                  <Phone className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span className="font-mono font-bold">{printingOrder.customer_phone}</span>
+                </div>
+                <div className="flex items-start gap-2 text-slate-600 pt-0.5">
+                  <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                  <span>
+                    {printingOrder.delivery_address}
+                    {printingOrder.district ? `, ${printingOrder.district}` : ''}
+                    {printingOrder.postal_code ? ` - ${printingOrder.postal_code}` : ''}
+                  </span>
+                </div>
               </div>
 
+              {/* Items Table */}
               <div className="pt-2">
-                <table className="w-full border-t border-slate-200 text-xs">
+                <table className="w-full border-t-2 border-slate-200 text-xs">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[10px] text-slate-400 uppercase">
-                      <th className="py-2 text-left">বিবরণ</th>
-                      <th className="py-2 text-center">পরিমাণ</th>
-                      <th className="py-2 text-right">মূল্য</th>
+                    <tr className="border-b border-slate-200 text-[10px] text-slate-500 uppercase font-black">
+                      <th className="py-2.5 text-left">আইটেম বিবরণ</th>
+                      <th className="py-2.5 text-center">পরিমাণ</th>
+                      <th className="py-2.5 text-right">একক মূল্য</th>
+                      <th className="py-2.5 text-right">মোট</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {(printingOrder.items || []).map((it, idx) => (
-                      <tr key={idx} className="border-b border-slate-50">
-                        <td className="py-2 font-bold">{it.title}</td>
-                        <td className="py-2 text-center">{it.quantity}</td>
-                        <td className="py-2 text-right">৳ {it.price * it.quantity}</td>
+                  <tbody className="divide-y divide-slate-100">
+                    {(printingOrder.items && printingOrder.items.length > 0
+                      ? printingOrder.items
+                      : [{ title: 'অর্ডারকৃত পণ্য', price: printingOrder.subtotal, quantity: 1 }]
+                    ).map((it, idx) => (
+                      <tr key={idx}>
+                        <td className="py-2.5 font-bold text-slate-900">{it.title}</td>
+                        <td className="py-2.5 text-center font-bold text-slate-700">{it.quantity}</td>
+                        <td className="py-2.5 text-right text-slate-600">৳ {it.price}</td>
+                        <td className="py-2.5 text-right font-black text-slate-900">৳ {it.price * it.quantity}</td>
                       </tr>
                     ))}
                   </tbody>

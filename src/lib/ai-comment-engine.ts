@@ -98,25 +98,29 @@ ${productCatalog || '- Building Blocks 60 Pcs: ৳850'}
 ৪. শুধুমাত্র কমেন্টের রিপ্লাই টেক্সটটি দাও, কোনো ইনভার্টেড কমা বা অতিরিক্ত লেখা ছাড়া।
 `;
 
-      try {
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: commentPrompt }] }],
-              generationConfig: { maxOutputTokens: 200, temperature: 0.5 },
-            }),
+      const candidateModels = ['gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash'];
+      for (const model of candidateModels) {
+        try {
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: commentPrompt }] }],
+                generationConfig: { maxOutputTokens: 200, temperature: 0.5 },
+              }),
+            }
+          );
+          const data = await geminiRes.json();
+          const generated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (generated) {
+            aiReplyText = generated;
+            break;
           }
-        );
-        const data = await geminiRes.json();
-        const generated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (generated) {
-          aiReplyText = generated;
+        } catch (aiErr) {
+          console.error(`Gemini model ${model} comment error:`, aiErr);
         }
-      } catch (aiErr) {
-        console.error('Gemini comment reply error:', aiErr);
       }
     }
 

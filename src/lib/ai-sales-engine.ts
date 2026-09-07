@@ -5,6 +5,7 @@ import { checkFaqCache, setFaqCache } from './faq-cache';
 interface ProcessMessageParams {
   tenantId: string;
   channelId: string;
+  platform?: 'facebook' | 'whatsapp' | 'instagram';
   pageId: string;
   senderId: string;
   customerName?: string;
@@ -25,7 +26,7 @@ interface ProcessMessageResult {
 export async function processCustomerMessage(
   params: ProcessMessageParams
 ): Promise<ProcessMessageResult> {
-  const { tenantId, channelId, pageId, senderId, customerName, messageText, accessToken } = params;
+  const { tenantId, channelId, platform, pageId, senderId, customerName, messageText, accessToken } = params;
 
   try {
     // 1. Resolve or Create Conversation
@@ -243,21 +244,34 @@ ${historyFormatted}
 }
 `;
 
-    const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const candidateModels = ['gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    let geminiData: any = null;
 
-    const geminiRes = await fetch(geminiEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.3,
-        },
-      }),
-    });
-
-    const geminiData = await geminiRes.json();
+    for (const model of candidateModels) {
+      try {
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const geminiRes = await fetch(geminiEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.3,
+            },
+          }),
+        });
+        const d = await geminiRes.json();
+        if (d.candidates && d.candidates[0]?.content?.parts?.[0]?.text) {
+          geminiData = d;
+          break;
+        } else if (d.error) {
+          console.warn(`[Gemini Model ${model} Warning]:`, d.error.message);
+        }
+      } catch (err: any) {
+        console.warn(`[Gemini Model ${model} Fetch Failed]:`, err.message);
+      }
+    }
     let aiParsed: any = null;
 
     try {
@@ -375,28 +389,64 @@ ${historyFormatted}
       }
     }
 
-    // 8. Dispatch Reply to Customer via Meta Graph API
-    if (accessToken && accessToken !== 'mock_token') {
+    // 8. Dispatch Reply to Customer via Meta Graph API (WhatsApp Cloud API or Messenger)
+    const hasValidMetaToken =
+      accessToken &&
+      accessToken !== 'mock_token' &&
+      accessToken !== 'whatsapp_managed_token' &&
+      accessToken.startsWith('EAA');
+
+    if (hasValidMetaToken) {
       try {
-        const fbRes = await fetch(
-          `https://graph.facebook.com/v19.0/me/messages?access_token=${accessToken}`,
-          {
+        const isWhatsApp =
+          platform === 'whatsapp' ||
+          (senderId && senderId.startsWith('880') && !senderId.includes('_'));
+
+        if (isWhatsApp) {
+          // WhatsApp Cloud API Outgoing Message
+          const waUrl = `https://graph.facebook.com/v19.0/${pageId}/messages`;
+          const waRes = await fetch(waUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
             body: JSON.stringify({
-              recipient: { id: senderId },
-              message: { text: replyText },
+              messaging_product: 'whatsapp',
+              recipient_type: 'individual',
+              to: senderId,
+              type: 'text',
+              text: { body: replyText },
             }),
+          });
+          if (!waRes.ok) {
+            const errData = await waRes.json();
+            console.warn('⚠️ WhatsApp Cloud API reply error:', errData);
+          } else {
+            console.log(`✅ [WhatsApp Cloud API] Sent reply to ${senderId}: "${replyText.slice(0, 30)}..."`);
           }
-        );
-        if (!fbRes.ok) {
-          const errData = await fbRes.json();
-          console.warn('⚠️ Meta Graph API reply error:', errData);
         } else {
-          console.log(`✅ [Graph API] Sent reply to ${senderId}: "${replyText.slice(0, 30)}..."`);
+          // Facebook Messenger / Instagram DM Outgoing Message
+          const fbRes = await fetch(
+            `https://graph.facebook.com/v19.0/me/messages?access_token=${accessToken}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipient: { id: senderId },
+                message: { text: replyText },
+              }),
+            }
+          );
+          if (!fbRes.ok) {
+            const errData = await fbRes.json();
+            console.warn('⚠️ Meta Graph API reply error:', errData);
+          } else {
+            console.log(`✅ [Graph API] Sent reply to ${senderId}: "${replyText.slice(0, 30)}..."`);
+          }
         }
       } catch (graphErr: any) {
-        console.error('Meta Graph API call error:', graphErr.message);
+        console.error('Meta Graph / WhatsApp API call error:', graphErr.message);
       }
     }
 

@@ -404,37 +404,66 @@ export default function CommentsPage() {
                 </h4>
 
                 {selectedPost.comments && selectedPost.comments.length > 0 ? (
-                  selectedPost.comments.map((comment) => (
-                    <div
-                      key={comment.id || comment.comment_id}
-                      className="p-4 rounded-2xl border border-slate-200/90 bg-slate-50/40 hover:bg-slate-50 transition-colors"
-                    >
-                      {/* Commenter Info */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs">
-                            <User className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="font-extrabold text-xs text-slate-900">{comment.customer_name}</p>
-                            <p className="text-[10px] text-slate-400">
-                              {new Date(comment.created_at).toLocaleTimeString('bn-BD', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          </div>
-                        </div>
+                  selectedPost.comments.map((comment, index) => {
+                    // Check if this is the first (latest) comment from this specific customer
+                    const isFirstCommentOfCustomer =
+                      selectedPost.comments.findIndex(
+                        (c) =>
+                          (c.customer_id && c.customer_id === comment.customer_id) ||
+                          c.customer_name === comment.customer_name
+                      ) === index;
 
-                        {/* 1-Click Connect with Buyer Button */}
-                        <button
-                          onClick={() => openPrivateMessageModal(comment)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-all"
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>ইনবক্সে মেসেজ পাঠান</span>
-                        </button>
-                      </div>
+                    // Check if an inbox message was already sent to this customer
+                    const customerAlreadyMessaged = selectedPost.comments.some(
+                      (c) =>
+                        ((c.customer_id && c.customer_id === comment.customer_id) ||
+                          c.customer_name === comment.customer_name) &&
+                        c.private_reply_sent
+                    );
+
+                    return (
+                      <div
+                        key={comment.id || comment.comment_id}
+                        className="p-4 rounded-2xl border border-slate-200/90 bg-slate-50/40 hover:bg-slate-50 transition-colors"
+                      >
+                        {/* Commenter Info */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs">
+                              <User className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="font-extrabold text-xs text-slate-900">{comment.customer_name}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {new Date(comment.created_at).toLocaleTimeString('bn-BD', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Only show 1 button per customer (not repeated on every comment) */}
+                          {isFirstCommentOfCustomer && (
+                            customerAlreadyMessaged ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold text-xs text-sky-700 bg-sky-50 border border-sky-200"
+                                title="এই গ্রাহকের সাথে ইতিমধ্যে ইনবক্সে যোগাযোগ করা হয়েছে"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+                                <span>ইনবক্সে কানেক্টেড ✓</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openPrivateMessageModal(comment)}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-all"
+                              >
+                                <Send className="w-3 h-3" />
+                                <span>ইনবক্সে মেসেজ পাঠান</span>
+                              </button>
+                            )
+                          )}
+                        </div>
 
                       {/* Comment Text */}
                       <div className="mt-2.5 pl-10 text-xs text-slate-800 font-medium">
@@ -478,7 +507,8 @@ export default function CommentsPage() {
                         )}
                       </div>
                     </div>
-                  ))
+                  );
+                })
                 ) : (
                   <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center">
                     <MessageSquare className="w-8 h-8 text-slate-300 mb-2" />

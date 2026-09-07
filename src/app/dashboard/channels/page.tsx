@@ -16,6 +16,13 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Trash2,
+  Copy,
+  Check,
+  Bot,
+  Send,
+  Sparkles,
+  Phone,
 } from 'lucide-react';
 
 interface Channel {
@@ -47,6 +54,15 @@ export default function ChannelsPage() {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthErrorDetails, setOauthErrorDetails] = useState<string | null>(null);
   const [quickSyncLoading, setQuickSyncLoading] = useState(false);
+  const [showAdvancedMeta, setShowAdvancedMeta] = useState(false);
+
+  // Live AI Testing Modal State
+  const [testingChannel, setTestingChannel] = useState<Channel | null>(null);
+  const [testMessage, setTestMessage] = useState('');
+  const [testSenderPhone, setTestSenderPhone] = useState('01712345678');
+  const [testLoading, setTestLoading] = useState(false);
+  const [testHistory, setTestHistory] = useState<Array<{ sender: 'user' | 'ai'; text: string; order?: any }>>([]);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   useEffect(() => {
     fetchChannels();
@@ -160,6 +176,93 @@ export default function ChannelsPage() {
     }
   };
 
+  const handleCopyWaLink = (phone: string) => {
+    const cleanPhone = phone.replace(/[\s\-\+\(\)]/g, '');
+    const waLink = `https://wa.me/${cleanPhone}?text=Hello,%20I%20want%20to%20order`;
+    navigator.clipboard.writeText(waLink);
+    setCopiedLink(phone);
+    setTimeout(() => setCopiedLink(null), 3000);
+  };
+
+  const handleDeleteChannel = async (channelId: string, name: string) => {
+    if (!confirm(`আপনি কি "${name}" চ্যানেলটি সংযোগ বিচ্ছিন্ন (Disconnect) করতে চান?`)) return;
+    try {
+      const token = getSessionToken();
+      const res = await fetch(`/api/channels?channelId=${channelId}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        setChannels((prev) => prev.filter((c) => c.id !== channelId));
+      } else {
+        const data = await res.json();
+        alert(data.error || 'চ্যানেল ডিলিট করা যায়নি।');
+      }
+    } catch (e: any) {
+      console.error('Delete channel error:', e);
+      alert(e.message || 'চ্যানেল ডিলিট করা যায়নি।');
+    }
+  };
+
+  const openTestModal = (channel: Channel) => {
+    setTestingChannel(channel);
+    setTestHistory([
+      {
+        sender: 'ai',
+        text: `নমস্কার/সালাম! আমি "${channel.channel_name}"-এর এআই সেলস কনসালট্যান্ট। আপনি যেকোনো প্রশ্ন জিজ্ঞেস করতে পারেন অথবা প্রোডাক্টের সাইজ ও ঠিকানা দিয়ে টেস্ট অর্ডার করতে পারেন!`,
+      },
+    ]);
+    setTestMessage('');
+  };
+
+  const handleSendTestMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testMessage.trim() || !testingChannel || testLoading) return;
+    const msg = testMessage.trim();
+    setTestMessage('');
+    setTestHistory((prev) => [...prev, { sender: 'user', text: msg }]);
+    setTestLoading(true);
+
+    try {
+      const token = getSessionToken();
+      const res = await fetch('/api/channels/test-message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          channelId: testingChannel.id,
+          messageText: msg,
+          customerPhone: testSenderPhone,
+        }),
+      });
+      const data = await res.json();
+      if (data.replyText) {
+        setTestHistory((prev) => [
+          ...prev,
+          {
+            sender: 'ai',
+            text: data.replyText,
+            order: data.orderCreated ? { orderNumber: data.orderNumber, orderId: data.orderId } : null,
+          },
+        ]);
+      } else {
+        setTestHistory((prev) => [
+          ...prev,
+          { sender: 'ai', text: data.error || 'দুঃখিত, কোনো উত্তর পাওয়া যায়নি।' },
+        ]);
+      }
+    } catch (err: any) {
+      setTestHistory((prev) => [
+        ...prev,
+        { sender: 'ai', text: 'দুঃখিত, টেস্ট মেসেজ প্রসেস করতে সাময়িক সমস্যা হয়েছে।' },
+      ]);
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -180,14 +283,24 @@ export default function ChannelsPage() {
       });
       const data = await res.json();
       if (res.ok && data.channel) {
-        setChannels((prev) => [data.channel, ...prev]);
+        setChannels((prev) => [data.channel, ...prev.filter((c) => c.id !== data.channel.id)]);
         setModalOpen(false);
         setChannelName('');
         setChannelIdentifier('');
         setAccessToken('');
+        setOauthSuccessMessage(
+          platform === 'whatsapp'
+            ? `🎉 চমৎকার! আপনার WhatsApp নম্বর (+${data.channel.channel_identifier}) সফলভাবে কানেক্ট হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয়!`
+            : `🎉 চ্যানেল সফলভাবে কানেক্ট হয়েছে!`
+        );
+        setOauthSuccess(true);
+        setTimeout(() => setOauthSuccess(false), 8000);
+      } else {
+        alert(data.error || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      alert(e.message || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
     } finally {
       setSubmitting(false);
     }
@@ -529,20 +642,29 @@ export default function ChannelsPage() {
                     <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xl shadow-sm">
                       f
                     </div>
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-                        c.webhook_verified
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
+                    <div className="flex items-center gap-1.5">
                       <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          c.webhook_verified ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                          c.webhook_verified
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}
-                      />
-                      <span>{c.webhook_verified ? 'Webhook সচল' : 'পেন্ডিং'}</span>
-                    </span>
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            c.webhook_verified ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                          }`}
+                        />
+                        <span>{c.webhook_verified ? 'Webhook সচল' : 'পেন্ডিং'}</span>
+                      </span>
+                      <button
+                        onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                        title="পেজ ডিসকানেক্ট করুন"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="font-extrabold text-base text-slate-900">{c.channel_name}</h3>
@@ -560,26 +682,37 @@ export default function ChannelsPage() {
                   </div>
                 </div>
 
-                {/* AI Auto-Reply Switch */}
-                <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">এআই সেলস কনসালট্যান্ট</p>
-                    <p className="text-[10px] text-slate-500">
-                      {c.ai_active ? 'স্বয়ংক্রিয় অর্ডার গ্রহণ করছে' : 'এআই বর্তমানে মিউট আছে'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => toggleAi(c)}
-                    disabled={updatingId === c.id}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        c.ai_active ? 'translate-x-5' : 'translate-x-0'
+                {/* AI Auto-Reply Switch & Live Test Button */}
+                <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">এআই সেলস কনসালট্যান্ট</p>
+                      <p className="text-[10px] text-slate-500">
+                        {c.ai_active ? 'স্বয়ংক্রিয় অর্ডার গ্রহণ করছে' : 'এআই বর্তমানে মিউট আছে'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => toggleAi(c)}
+                      disabled={updatingId === c.id}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
                       }`}
-                    />
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          c.ai_active ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openTestModal(c)}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>🧪 ফেসবুক এআই টেস্ট করুন</span>
                   </button>
                 </div>
               </div>
@@ -600,10 +733,19 @@ export default function ChannelsPage() {
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
                       IG
                     </div>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>সক্রিয়</span>
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>সক্রিয়</span>
+                      </span>
+                      <button
+                        onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                        title="চ্যানেল ডিসকানেক্ট করুন"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="font-extrabold text-base text-slate-900">{c.channel_name}</h3>
@@ -622,25 +764,36 @@ export default function ChannelsPage() {
                 </div>
 
                 {/* AI Auto-Reply Switch */}
-                <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">এআই অটো-রিপ্লাই</p>
-                    <p className="text-[10px] text-slate-500">
-                      {c.ai_active ? 'ডিএম ও কমেন্টে উত্তর দিচ্ছে' : 'বট সাময়িকভাবে বন্ধ আছে'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => toggleAi(c)}
-                    disabled={updatingId === c.id}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        c.ai_active ? 'translate-x-5' : 'translate-x-0'
+                <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">এআই অটো-রিপ্লাই</p>
+                      <p className="text-[10px] text-slate-500">
+                        {c.ai_active ? 'ডিএম ও কমেন্টে উত্তর দিচ্ছে' : 'বট সাময়িকভাবে বন্ধ আছে'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => toggleAi(c)}
+                      disabled={updatingId === c.id}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
                       }`}
-                    />
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          c.ai_active ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openTestModal(c)}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>🧪 ইনস্টাগ্রাম এআই টেস্ট করুন</span>
                   </button>
                 </div>
               </div>
@@ -649,63 +802,130 @@ export default function ChannelsPage() {
           {/* WhatsApp Cloud API Card */}
           {channels
             .filter((c) => c.platform === 'whatsapp')
-            .map((c) => (
-              <div
-                key={c.id}
-                className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-50/50 rounded-full blur-2xl -mr-10 -mt-10" />
+            .map((c) => {
+              const cleanPhone = c.channel_identifier.replace(/[\s\-\+\(\)]/g, '');
+              const waUrl = `https://wa.me/${cleanPhone}?text=Hello,%20I%20want%20to%20order`;
 
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                      WA
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>সক্রিয়</span>
-                    </span>
-                  </div>
+              return (
+                <div
+                  key={c.id}
+                  className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group"
+                >
+                  <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-50/50 rounded-full blur-2xl -mr-10 -mt-10" />
 
-                  <h3 className="font-extrabold text-base text-slate-900">{c.channel_name}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5 font-mono">ID: {c.channel_identifier}</p>
-
-                  <div className="mt-5 space-y-2 text-xs border-t border-slate-100 pt-4">
-                    <div className="flex justify-between py-1 text-slate-600">
-                      <span>প্ল্যাটফর্ম:</span>
-                      <span className="font-bold text-slate-800">WhatsApp Cloud API</span>
-                    </div>
-                    <div className="flex justify-between py-1 text-slate-600">
-                      <span>কোয়ালিটি রেটিং:</span>
-                      <span className="font-bold text-emerald-600">High (Green Rating)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI Auto-Reply Switch */}
-                <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold text-slate-900">এআই অটো-রিপ্লাই</p>
-                    <p className="text-[10px] text-slate-500">
-                      {c.ai_active ? 'হোয়াটসঅ্যাপে উত্তর দিচ্ছে' : 'বট সাময়িকভাবে বন্ধ আছে'}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                        💬
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>সক্রিয়</span>
+                        </span>
+                        <button
+                          onClick={() => handleDeleteChannel(c.id, c.channel_name)}
+                          title="চ্যানেল ডিসকানেক্ট করুন"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <h3 className="font-extrabold text-base text-slate-900">{c.channel_name}</h3>
+                    <p className="text-xs text-slate-500 mt-0.5 font-mono flex items-center gap-1">
+                      <Phone className="w-3.5 h-3.5 text-emerald-600 inline" />
+                      <span>+{c.channel_identifier}</span>
                     </p>
+
+                    {/* Smart wa.me Order Link */}
+                    <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-emerald-900">স্মার্ট WhatsApp অর্ডার লিঙ্ক:</span>
+                        <span className="text-[10px] text-emerald-700 font-medium">পেজ/পোস্টে ব্যবহারযোগ্য</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-xl border border-emerald-200">
+                        <span className="font-mono text-[10px] text-slate-600 truncate flex-1 pl-1">
+                          wa.me/{cleanPhone}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyWaLink(c.channel_identifier)}
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1 shrink-0"
+                        >
+                          {copiedLink === c.channel_identifier ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>কপি হয়েছে!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>কপি</span>
+                            </>
+                          )}
+                        </button>
+                        <a
+                          href={waUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-all shrink-0"
+                          title="WhatsApp-এ ওপেন করুন"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-xs border-t border-slate-100 pt-3">
+                      <div className="flex justify-between py-0.5 text-slate-600">
+                        <span>প্ল্যাটফর্ম:</span>
+                        <span className="font-bold text-slate-800">WhatsApp Commerce Hub</span>
+                      </div>
+                      <div className="flex justify-between py-0.5 text-slate-600">
+                        <span>এআই অর্ডার ট্র্যাকিং:</span>
+                        <span className="font-bold text-emerald-600">স্বয়ংক্রিয় (Enabled)</span>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => toggleAi(c)}
-                    disabled={updatingId === c.id}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      c.ai_active ? 'bg-indigo-600' : 'bg-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        c.ai_active ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+
+                  {/* AI Auto-Reply Switch & Live Test Button */}
+                  <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">এআই সেলস এজেন্ট</p>
+                        <p className="text-[10px] text-slate-500">
+                          {c.ai_active ? 'গ্রাহকের মেসেজে স্বয়ংক্রিয় উত্তর দিচ্ছে' : 'এআই বর্তমানে বন্ধ আছে'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => toggleAi(c)}
+                        disabled={updatingId === c.id}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          c.ai_active ? 'bg-emerald-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            c.ai_active ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => openTestModal(c)}
+                      className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>🧪 হোয়াটসঅ্যাপ এআই টেস্ট করুন</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
       )}
 
@@ -778,73 +998,298 @@ export default function ChannelsPage() {
             </div>
 
             <form onSubmit={handleAddChannel} className="mt-5 space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  {platform === 'facebook'
-                    ? 'ফেসবুক পেজের নাম'
-                    : platform === 'instagram'
-                    ? 'ইনস্টাগ্রাম অ্যাকাউন্ট নাম (@handle)'
-                    : 'হোয়াটসঅ্যাপ বিজনেস নাম'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={channelName}
-                  onChange={(e) => setChannelName(e.target.value)}
-                  placeholder={
-                    platform === 'facebook'
-                      ? 'যেমন: শপ বিডি'
-                      : platform === 'instagram'
-                      ? 'যেমন: @shopbd_official'
-                      : 'যেমন: শপ বিডি অফিসিয়াল'
-                  }
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
-                />
-              </div>
+              {platform === 'whatsapp' ? (
+                <>
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 space-y-1">
+                    <p className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                      <span>💬</span>
+                      <span>সহজ WhatsApp কানেকশন</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-700 leading-relaxed">
+                      কোনো জটিল টোকেন লাগবে না! গ্রাহকরা ফেসবুক পোস্ট বা বিজ্ঞাপন থেকে এই নম্বরে মেসেজ পাঠালে এআই স্বয়ংক্রিয়ভাবে কথা বলবে ও অর্ডার নেবে।
+                    </p>
+                  </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  {platform === 'whatsapp' ? 'Phone Number ID / WABA ID' : 'Page ID / Account ID'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={channelIdentifier}
-                  onChange={(e) => setChannelIdentifier(e.target.value)}
-                  placeholder="যেমন: 10892746198"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
-                />
-              </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      WhatsApp বিজনেস মোবাইল নম্বর
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={channelIdentifier}
+                      onChange={(e) => setChannelIdentifier(e.target.value)}
+                      placeholder="যেমন: 01712345678"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      নম্বরটি আপনার পেজের সাথে যুক্ত নম্বর অথবা যেকোনো সক্রিয় হোয়াটসঅ্যাপ নম্বর হতে পারে।
+                    </p>
+                  </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Access Token (Permanent Page Token)
-                </label>
-                <input
-                  type="password"
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
-                  placeholder="EAA..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
-                />
-              </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      শপ / বিজনেস নাম
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={channelName}
+                      onChange={(e) => setChannelName(e.target.value)}
+                      placeholder="যেমন: Little Joys WhatsApp"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
 
-              <div className="pt-4 flex items-center justify-end gap-2">
+                  {/* Advanced Collapsible Accordion */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedMeta(!showAdvancedMeta)}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                    >
+                      <span>{showAdvancedMeta ? '▾' : '▸'}</span>
+                      <span>মেটা ক্লাউড এপিআই সেটিংস (ঐচ্ছিক/ডেভেলপারদের জন্য)</span>
+                    </button>
+
+                    {showAdvancedMeta && (
+                      <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3 animate-in fade-in">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase">
+                            Phone Number ID (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={channelIdentifier}
+                            onChange={(e) => setChannelIdentifier(e.target.value)}
+                            placeholder="যেমন: 10892746198"
+                            className="w-full p-2 rounded-lg border border-slate-200 text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase">
+                            Permanent Access Token (Optional)
+                          </label>
+                          <input
+                            type="password"
+                            value={accessToken}
+                            onChange={(e) => setAccessToken(e.target.value)}
+                            placeholder="EAA..."
+                            className="w-full p-2 rounded-lg border border-slate-200 text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      {platform === 'facebook'
+                        ? 'ফেসবুক পেজের নাম'
+                        : 'ইনস্টাগ্রাম অ্যাকাউন্ট নাম (@handle)'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={channelName}
+                      onChange={(e) => setChannelName(e.target.value)}
+                      placeholder={
+                        platform === 'facebook'
+                          ? 'যেমন: Little Joys'
+                          : 'যেমন: @littlejoys_official'
+                      }
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      {platform === 'facebook' ? 'Facebook Page ID' : 'Instagram Account ID'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={channelIdentifier}
+                      onChange={(e) => setChannelIdentifier(e.target.value)}
+                      placeholder="যেমন: 1374129259109200"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Access Token (Page Token)
+                    </label>
+                    <input
+                      type="password"
+                      value={accessToken}
+                      onChange={(e) => setAccessToken(e.target.value)}
+                      placeholder="EAA..."
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-bold"
+                  className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold"
                 >
                   বাতিল
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                  className={`px-5 py-2.5 rounded-xl text-white font-bold transition-all shadow-md ${
+                    platform === 'whatsapp'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                  }`}
                 >
-                  {submitting ? 'সেভ হচ্ছে...' : 'চ্যানেল সেভ করুন'}
+                  {submitting ? 'সেভ হচ্ছে...' : platform === 'whatsapp' ? '🟢 WhatsApp যুক্ত করুন' : 'চ্যানেল সেভ করুন'}
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Live AI Test Chat Simulator Modal */}
+      {testingChannel && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] animate-in fade-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-white shadow-sm ${
+                    testingChannel.platform === 'whatsapp'
+                      ? 'bg-emerald-600'
+                      : testingChannel.platform === 'facebook'
+                      ? 'bg-blue-600'
+                      : 'bg-pink-600'
+                  }`}
+                >
+                  {testingChannel.platform === 'whatsapp' ? '💬' : testingChannel.platform === 'facebook' ? 'f' : 'IG'}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-1.5">
+                    <span>এআই লাইভ সেলস চ্যাট টেস্ট</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                      লাইভ সিমুলেটর
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {testingChannel.channel_name} ({testingChannel.platform === 'whatsapp' ? 'WhatsApp' : 'Facebook'})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTestingChannel(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Test Message Suggestions */}
+            <div className="py-3 border-b border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                ক্লিক করে টেস্ট মেসেজ দিন:
+              </p>
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setTestMessage('ভাইয়া ডেলিভারি চার্জ কত এবং কতদিন লাগে?')}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors"
+                >
+                  🚚 ডেলিভারি চার্জ কত?
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestMessage('আমি ১ জোড়া জুতো নিতে চাই, সাইজ ৪২ আছে?')}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors"
+                >
+                  👟 সাইজ ৪২ আছে?
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTestMessage(
+                      'আমার নাম সাজিদ, মিরপুর ১০ ঢাকা, ফোন ০১৭১১২২৩৩৪৪, ক্যাশ অন ডেলিভারিতে অর্ডার কনফার্ম করুন।'
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors font-semibold"
+                >
+                  📦 ফুল অর্ডার টেস্ট
+                </button>
+              </div>
+            </div>
+
+            {/* Chat History Messages */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-3 min-h-[200px] max-h-[350px] pr-1">
+              {testHistory.map((item, idx) => (
+                <div
+                  key={idx}
+                  className={`flex flex-col ${item.sender === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
+                      item.sender === 'user'
+                        ? 'bg-indigo-600 text-white rounded-tr-none shadow-sm'
+                        : 'bg-slate-100 text-slate-800 rounded-tl-none border border-slate-200/80 shadow-sm'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap">{item.text}</p>
+                    {item.order && (
+                      <div className="mt-2.5 p-2.5 bg-emerald-100/90 rounded-xl border border-emerald-300 text-emerald-950 font-bold text-[11px] flex items-center justify-between gap-2">
+                        <span>🎉 অর্ডার তৈরি হয়েছে: #{item.order.orderNumber}</span>
+                        <a
+                          href="/dashboard/orders"
+                          className="underline hover:text-emerald-800 font-bold"
+                        >
+                          অর্ডার দেখুন →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-slate-400 mt-1 px-1">
+                    {item.sender === 'user' ? 'আপনি (গ্রাহক)' : 'এআই বিক্রয় প্রতিনিধি'}
+                  </span>
+                </div>
+              ))}
+              {testLoading && (
+                <div className="flex items-start">
+                  <div className="bg-slate-100 text-slate-600 rounded-2xl rounded-tl-none p-3 text-xs border border-slate-200 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
+                    <span>এআই বিক্রয় প্রতিনিধি উত্তর প্রস্তুত করছে...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input Footer */}
+            <form onSubmit={handleSendTestMessage} className="pt-3 border-t border-slate-100 flex items-center gap-2">
+              <input
+                type="text"
+                value={testMessage}
+                onChange={(e) => setTestMessage(e.target.value)}
+                placeholder="গ্রাহক হিসেবে কোনো মেসেজ লিখুন..."
+                disabled={testLoading}
+                className="flex-1 p-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="submit"
+                disabled={!testMessage.trim() || testLoading}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>পাঠান</span>
+              </button>
             </form>
           </div>
         </div>
@@ -853,3 +1298,4 @@ export default function ChannelsPage() {
     </div>
   );
 }
+

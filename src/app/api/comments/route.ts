@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
 
       // Look up channel access token
       const commentRes = await query(
-        `SELECT fc.comment_id, fc.channel_id, c.access_token
+        `SELECT fc.comment_id, fc.channel_id, fc.private_reply_sent, c.access_token
          FROM facebook_comments fc
          JOIN channels c ON fc.channel_id = c.id
          WHERE fc.comment_id = $1 AND fc.tenant_id = $2
@@ -178,6 +178,13 @@ export async function POST(req: NextRequest) {
 
       if (commentRes.rows.length === 0) {
         return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
+      }
+
+      if (commentRes.rows[0].private_reply_sent) {
+        return NextResponse.json(
+          { error: 'মেটার পলিসি অনুযায়ী এই কমেন্টের বিপরীতে ইতিমধ্যে ইনবক্সে ১টি প্রাইভেট বার্তা পাঠানো হয়েছে।' },
+          { status: 400 }
+        );
       }
 
       const accessToken = commentRes.rows[0].access_token || process.env.META_PAGE_ACCESS_TOKEN || '';

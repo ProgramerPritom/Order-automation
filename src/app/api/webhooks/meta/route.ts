@@ -146,13 +146,14 @@ export async function POST(req: NextRequest) {
           const phoneNumberId = val?.metadata?.phone_number_id;
           const waMessage = val?.messages?.[0];
 
+          const displayPhone = val?.metadata?.display_phone_number?.replace(/[\s\-\+\(\)]/g, '') || '';
           if (phoneNumberId && waMessage) {
             const waChannelRes = await query(
               `SELECT c.id, c.tenant_id, c.access_token, c.ai_active
                FROM channels c
-               WHERE c.channel_identifier = $1 AND c.platform = 'whatsapp'
+               WHERE (c.channel_identifier = $1 OR c.channel_identifier = $2) AND c.platform = 'whatsapp'
                LIMIT 1;`,
-              [String(phoneNumberId)]
+              [String(phoneNumberId), String(displayPhone)]
             );
 
             if (waChannelRes.rows.length > 0 && waChannelRes.rows[0].ai_active !== false) {
@@ -165,6 +166,7 @@ export async function POST(req: NextRequest) {
                 await enqueueWebhookJob('customer_message', {
                   tenantId: waChannel.tenant_id,
                   channelId: waChannel.id,
+                  platform: 'whatsapp',
                   pageId: String(phoneNumberId),
                   senderId: String(senderPhone),
                   customerName: val.contacts?.[0]?.profile?.name || `WhatsApp ${senderPhone}`,

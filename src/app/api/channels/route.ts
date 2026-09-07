@@ -64,6 +64,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let cleanIdentifier = channel_identifier.trim();
+    if (platform === 'whatsapp') {
+      // Auto-normalize phone numbers (e.g. 017... -> 88017...)
+      cleanIdentifier = cleanIdentifier.replace(/[\s\-\+\(\)]/g, '');
+      if (cleanIdentifier.startsWith('01')) {
+        cleanIdentifier = '88' + cleanIdentifier;
+      }
+    }
+
+    const finalToken =
+      access_token?.trim() ||
+      process.env.META_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN ||
+      'whatsapp_managed_token';
+
     const res = await query(
       `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified)
        VALUES ($1, $2, $3, $4, $5, TRUE, TRUE)
@@ -73,7 +88,7 @@ export async function POST(req: NextRequest) {
          access_token = COALESCE(EXCLUDED.access_token, channels.access_token),
          updated_at = NOW()
        RETURNING id, platform, channel_identifier, channel_name, ai_active, webhook_verified;`,
-      [auth.tenantId, platform, channel_identifier, channel_name, access_token || 'mock_token']
+      [auth.tenantId, platform, cleanIdentifier, channel_name, finalToken]
     );
 
     return NextResponse.json({
@@ -127,3 +142,43 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/channels - Disconnect / delete a channel
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const auth = await getAuthTenant(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const channelId = searchParams.get('channelId');
+
+    if (!channelId) {
+      return NextResponse.json({ error: 'Channel ID is required' }, { status: 400 });
+    }
+
+    const res = await query(
+      `DELETE FROM channels 
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING id, platform, channel_name;`,
+      [channelId, auth.tenantId]
+    );
+
+    if (res.rows.length === 0) {
+      return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Channel disconnected successfully',
+      deleted: res.rows[0],
+    });
+  } catch (error: any) {
+    console.error('Delete channel error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
