@@ -151,7 +151,12 @@ export async function POST(req: NextRequest) {
             const waChannelRes = await query(
               `SELECT c.id, c.tenant_id, c.access_token, c.ai_active
                FROM channels c
-               WHERE (c.channel_identifier = $1 OR c.channel_identifier = $2) AND c.platform = 'whatsapp'
+               WHERE (
+                 c.channel_identifier = $1 
+                 OR c.channel_identifier = $2
+                 OR (LENGTH($2) >= 10 AND RIGHT(c.channel_identifier, 10) = RIGHT($2, 10))
+                 OR (LENGTH($1) >= 10 AND RIGHT(c.channel_identifier, 10) = RIGHT($1, 10))
+               ) AND c.platform = 'whatsapp'
                LIMIT 1;`,
               [String(phoneNumberId), String(displayPhone)]
             );

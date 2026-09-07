@@ -63,15 +63,19 @@ export default function ChannelsPage() {
   const [testLoading, setTestLoading] = useState(false);
   const [testHistory, setTestHistory] = useState<Array<{ sender: 'user' | 'ai'; text: string; order?: any }>>([]);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [storeContext, setStoreContext] = useState<any>(null);
 
   useEffect(() => {
     fetchChannels();
     // Check if redirected after OAuth callback
     const params = new URLSearchParams(window.location.search);
     if (params.get('connected') === 'true') {
-      const pageName = params.get('channel_name') || 'ফেসবুক পেজ';
+      const pageName = params.get('channel_name') || 'চ্যানেল';
+      const isWa = params.get('platform') === 'whatsapp';
       setOauthSuccessMessage(
-        `🎉 অভিনন্দন! আপনার "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`
+        isWa
+          ? `🎉 অভিনন্দন! আপনার "${pageName}" সফলভাবে মেটা দিয়ে সংযুক্ত হয়েছে এবং হোয়াটসঅ্যাপ এআই সক্রিয়!`
+          : `🎉 অভিনন্দন! আপনার "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`
       );
       setOauthSuccess(true);
       setOauthError(null);
@@ -96,6 +100,16 @@ export default function ChannelsPage() {
       return;
     }
     window.location.href = `/api/auth/facebook/login?token=${token}`;
+  };
+
+  const handleWhatsAppOAuthLogin = () => {
+    const token = getSessionToken();
+    if (!token) {
+      alert('আপনার লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/whatsapp/login?token=${token}`;
   };
 
   const handleQuickSync = async () => {
@@ -204,15 +218,28 @@ export default function ChannelsPage() {
     }
   };
 
-  const openTestModal = (channel: Channel) => {
+  const openTestModal = async (channel: Channel) => {
     setTestingChannel(channel);
+    setTestMessage('');
     setTestHistory([
       {
         sender: 'ai',
         text: `নমস্কার/সালাম! আমি "${channel.channel_name}"-এর এআই সেলস কনসালট্যান্ট। আপনি যেকোনো প্রশ্ন জিজ্ঞেস করতে পারেন অথবা প্রোডাক্টের সাইজ ও ঠিকানা দিয়ে টেস্ট অর্ডার করতে পারেন!`,
       },
     ]);
-    setTestMessage('');
+
+    try {
+      const token = getSessionToken();
+      const res = await fetch('/api/channels/test-context', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (data.suggestions) {
+        setStoreContext(data);
+      }
+    } catch (e) {
+      console.warn('Could not fetch store test context:', e);
+    }
   };
 
   const handleSendTestMessage = async (e: React.FormEvent) => {
@@ -414,19 +441,13 @@ export default function ChannelsPage() {
             <span>ইনস্টাগ্রাম কানেক্ট</span>
           </button>
 
-          {/* WhatsApp Connect Button */}
+          {/* 1-Click WhatsApp OAuth Connect Button */}
           <button
-            onClick={() => {
-              setPlatform('whatsapp');
-              setChannelName('');
-              setChannelIdentifier('');
-              setAccessToken('');
-              setModalOpen(true);
-            }}
+            onClick={handleWhatsAppOAuthLogin}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all"
           >
             <span>💬</span>
-            <span>হোয়াটসঅ্যাপ কানেক্ট</span>
+            <span>১-ক্লিকে হোয়াটসঅ্যাপ কানেক্ট</span>
           </button>
 
 
@@ -1000,14 +1021,34 @@ export default function ChannelsPage() {
             <form onSubmit={handleAddChannel} className="mt-5 space-y-4 text-xs">
               {platform === 'whatsapp' ? (
                 <>
-                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 space-y-1">
-                    <p className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
-                      <span>💬</span>
-                      <span>সহজ WhatsApp কানেকশন</span>
+                  {/* Option 1: 1-Click Meta OAuth Redirect Button */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-md space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-xs flex items-center gap-1.5">
+                        <span>💬</span>
+                        <span>১-ক্লিকে মেটা দিয়ে WhatsApp কানেক্ট</span>
+                      </span>
+                      <span className="px-2 py-0.5 bg-white/20 text-white rounded-full text-[10px] font-bold">
+                        রিকমেন্ডেড
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-50 leading-relaxed">
+                      মেটাতে লগইন করে আপনার বিজনেস অ্যাকাউন্ট ও হোয়াটসঅ্যাপ সিলেক্ট করুন। ফেসবুক পেজের মতো সরাসরি কানেক্ট হয়ে যাবে।
                     </p>
-                    <p className="text-[11px] text-emerald-700 leading-relaxed">
-                      কোনো জটিল টোকেন লাগবে না! গ্রাহকরা ফেসবুক পোস্ট বা বিজ্ঞাপন থেকে এই নম্বরে মেসেজ পাঠালে এআই স্বয়ংক্রিয়ভাবে কথা বলবে ও অর্ডার নেবে।
-                    </p>
+                    <button
+                      type="button"
+                      onClick={handleWhatsAppOAuthLogin}
+                      className="w-full py-2.5 px-4 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl font-black text-xs transition-all shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>মেটা লগইনে রিডাইরেক্ট করুন →</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 my-2">
+                    <div className="flex-1 h-px bg-slate-200" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">অথবা সরাসরি নম্বর দিন</span>
+                    <div className="flex-1 h-px bg-slate-200" />
                   </div>
 
                   <div>
@@ -1202,32 +1243,44 @@ export default function ChannelsPage() {
                 ক্লিক করে টেস্ট মেসেজ দিন:
               </p>
               <div className="flex flex-wrap gap-1.5 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setTestMessage('ভাইয়া ডেলিভারি চার্জ কত এবং কতদিন লাগে?')}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors"
-                >
-                  🚚 ডেলিভারি চার্জ কত?
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTestMessage('আমি ১ জোড়া জুতো নিতে চাই, সাইজ ৪২ আছে?')}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors"
-                >
-                  👟 সাইজ ৪২ আছে?
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTestMessage(
-                      'আমার নাম সাজিদ, মিরপুর ১০ ঢাকা, ফোন ০১৭১১২২৩৩৪৪, ক্যাশ অন ডেলিভারিতে অর্ডার কনফার্ম করুন।'
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors font-semibold"
-                >
-                  📦 ফুল অর্ডার টেস্ট
-                </button>
+                {(storeContext?.suggestions || [
+                  'ভাইয়া ডেলিভারি চার্জ কত এবং ঢাকায় কতদিন সময় লাগে?',
+                  'আপনাদের স্টকে কী কী পণ্য আছে?',
+                  'আমার নাম কবির হোসেন, মিরপুর ১০ ঢাকা, ফোন ০১৮৯৯১১২২৩৩, ক্যাশ অন ডেলিভারিতে ১টি আইটেম পাঠান।',
+                ]).map((sug: string, i: number) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setTestMessage(sug)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 transition-colors text-left"
+                  >
+                    {i === 0 ? '🚚 ' : i === 1 ? '🛍️ ' : '📦 '}
+                    <span>{sug.length > 40 ? sug.slice(0, 40) + '...' : sug}</span>
+                  </button>
+                ))}
               </div>
+
+              {/* Real In-Stock Products Chips */}
+              {storeContext?.products && storeContext.products.length > 0 && (
+                <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-slate-400 font-bold">শপের রিয়েল প্রোডাক্ট:</span>
+                  {storeContext.products.slice(0, 3).map((p: any) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() =>
+                        setTestMessage(
+                          `আমার নাম কবির হোসেন, মিরপুর ১২ ঢাকা, ফোন ০১৮৯৯১১২২৩৩। আমি ১টি "${p.title}" ক্যাশ অন ডেলিভারিতে অর্ডার করতে চাই।`
+                        )
+                      }
+                      className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] hover:bg-emerald-100 font-medium transition-colors"
+                      title="অর্ডার টেস্ট করতে ক্লিক করুন"
+                    >
+                      {p.title} (৳{p.price})
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Chat History Messages */}
