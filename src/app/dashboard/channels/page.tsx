@@ -23,6 +23,9 @@ import {
   Send,
   Sparkles,
   Phone,
+  QrCode,
+  Smartphone,
+  LogOut,
 } from 'lucide-react';
 
 interface Channel {
@@ -66,8 +69,94 @@ export default function ChannelsPage() {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [storeContext, setStoreContext] = useState<any>(null);
 
+  // WhatsApp In-Dashboard QR Modal State
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [botStatus, setBotStatus] = useState<'idle' | 'starting' | 'qr_ready' | 'connected' | 'error'>('idle');
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [connectedPhone, setConnectedPhone] = useState<string | null>(null);
+  const [connectedUser, setConnectedUser] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [qrRefreshLoading, setQrRefreshLoading] = useState(false);
+
+  // Poll WhatsApp QR status when modal is open
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (qrModalOpen) {
+      fetchQrStatus();
+      interval = setInterval(() => {
+        fetchQrStatus();
+      }, 2500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [qrModalOpen]);
+
+  const fetchQrStatus = async () => {
+    try {
+      const res = await fetch('/api/whatsapp/qr');
+      const data = await res.json();
+      if (data.success) {
+        setBotStatus(data.status);
+        if (data.qrDataUrl) {
+          setQrDataUrl(data.qrDataUrl);
+        }
+        if (data.phone) {
+          setConnectedPhone(data.phone);
+        }
+        if (data.userName) {
+          setConnectedUser(data.userName);
+        }
+        if (data.status === 'connected') {
+          fetchChannels();
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching WhatsApp QR status:', e);
+    }
+  };
+
+  const handleDisconnectWhatsApp = async () => {
+    if (!confirm('আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট করতে চান?')) return;
+    setDisconnecting(true);
+    try {
+      const res = await fetch('/api/whatsapp/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
+      });
+      const data = await res.json();
+      setBotStatus('idle');
+      setQrDataUrl(null);
+      setConnectedPhone(null);
+      setConnectedUser(null);
+      fetchChannels();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const handleRestartQr = async () => {
+    setQrRefreshLoading(true);
+    try {
+      await fetch('/api/whatsapp/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start' }),
+      });
+      await fetchQrStatus();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setQrRefreshLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchChannels();
+    fetchQrStatus();
     // Check if redirected after OAuth callback
     const params = new URLSearchParams(window.location.search);
     if (params.get('connected') === 'true') {
@@ -498,32 +587,25 @@ export default function ChannelsPage() {
             <span>ইনস্টাগ্রাম কানেক্ট</span>
           </button>
 
-          {/* 1-Click WhatsApp OAuth Connect Button */}
+          {/* WhatsApp Web In-Dashboard QR Connect Button */}
           <button
-            onClick={handleWhatsAppOAuthLogin}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all"
+            onClick={() => {
+              setQrModalOpen(true);
+              fetchQrStatus();
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
           >
-            <span>💬</span>
-            <span>১-ক্লিকে হোয়াটসঅ্যাপ কানেক্ট</span>
-          </button>
-
-          {/* WhatsApp Copilot QR Runner & Test Button */}
-          <button
-            onClick={() =>
-              openTestModal({
-                id: 'whatsapp-copilot-bot',
-                platform: 'whatsapp',
-                channel_identifier: '01712345678',
-                channel_name: 'WhatsApp AI Manager',
-                ai_active: true,
-                webhook_verified: true,
-                quality_rating: 'GREEN',
-              })
-            }
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 shadow-md shadow-emerald-600/20 transition-all"
-          >
-            <span>📱</span>
-            <span>WhatsApp সহকারী (QR ও টেস্ট)</span>
+            <QrCode className="w-4 h-4" />
+            <span>WhatsApp কিউআর দিয়ে যুক্ত করুন</span>
+            {botStatus === 'connected' ? (
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-emerald-300 text-emerald-950 font-black">
+                Connected
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-white/20 text-white font-bold">
+                QR Web
+              </span>
+            )}
           </button>
 
           <button
@@ -1605,6 +1687,163 @@ export default function ChannelsPage() {
                 <span>পাঠান</span>
               </button>
             </form>
+          </div>
+        </div>
+      {/* WhatsApp Web Live QR Connection Modal */}
+      {qrModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-slate-100 flex flex-col space-y-5 relative">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-emerald-500/20">
+                  💬
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                    <span>WhatsApp যুক্ত করুন (Web QR)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                      Zero Meta API
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    সাধারণ WhatsApp দিয়ে স্ক্যান করে প্রজেক্টে এআই সক্রিয় করুন
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setQrModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Connected State */}
+            {botStatus === 'connected' ? (
+              <div className="space-y-4 py-2">
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 text-center space-y-3">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-emerald-950 text-base">
+                      WhatsApp সফলভাবে সংযুক্ত হয়েছে!
+                    </h4>
+                    <p className="text-xs text-emerald-800 font-mono font-bold mt-1">
+                      📱 সংযুক্ত নম্বর: +{connectedPhone}
+                    </p>
+                    {connectedUser && (
+                      <p className="text-[11px] text-emerald-600 mt-0.5">
+                        প্রোফাইল: {connectedUser}
+                      </p>
+                    )}
+                  </div>
+                  <div className="pt-2 text-xs text-slate-600 leading-relaxed text-left bg-white/90 p-3 rounded-xl border border-emerald-100 space-y-1">
+                    <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>এআই অ্যাসিস্ট্যান্ট সক্রিয়:</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      যেকোনো মার্চেন্ট বা কাস্টমার এই নম্বরে হোয়াটসঅ্যাপে মেসেজ পাঠালে (যেমন: "অর্ডার", "স্টক", "বিক্রি") এআই স্বয়ংক্রিয়ভাবে ডাটাবেজ থেকে তথ্য ও উত্তর দেবে।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQrModalOpen(false);
+                      openTestModal({
+                        id: 'whatsapp-copilot-bot',
+                        platform: 'whatsapp',
+                        channel_identifier: connectedPhone || '01712345678',
+                        channel_name: connectedUser || 'WhatsApp AI Manager',
+                        ai_active: true,
+                        webhook_verified: true,
+                        quality_rating: 'GREEN',
+                      });
+                    }}
+                    className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>💬 এআই টেস্ট চ্যাটবক্স</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDisconnectWhatsApp}
+                    disabled={disconnecting}
+                    className="py-2.5 px-3 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{disconnecting ? 'ডিসকানেক্ট...' : 'লগআউট'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : botStatus === 'qr_ready' && qrDataUrl ? (
+              <div className="space-y-4 text-center">
+                {/* QR Code Container */}
+                <div className="relative inline-block mx-auto p-2 bg-white rounded-2xl border-2 border-emerald-400 shadow-lg">
+                  <img
+                    src={qrDataUrl}
+                    alt="WhatsApp Web QR Code"
+                    className="w-56 h-56 mx-auto rounded-xl object-contain"
+                  />
+                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-md">
+                    স্ক্যান করার জন্য রেডি
+                  </div>
+                </div>
+
+                {/* Step by Step Instructions in Bengali */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-left space-y-1.5 text-xs">
+                  <p className="font-extrabold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>আপনার ফোন থেকে যেভাবে লিংক করবেন:</span>
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-600 text-[11px]">
+                    <li>
+                      ফোনে <strong className="text-slate-900">WhatsApp</strong> অ্যাপটি খুলুন।
+                    </li>
+                    <li>
+                      উপরে ডানদিকের <strong className="text-slate-900">মেনু (⋮) বা Settings</strong>-এ যান।
+                    </li>
+                    <li>
+                      <strong className="text-emerald-700">Linked Devices (যুক্ত ডিভাইস)</strong>-এ চাপুন।
+                    </li>
+                    <li>
+                      <strong className="text-emerald-700">Link a Device (ডিভাইস যুক্ত করুন)</strong> দিয়ে এই QR কোডটি স্ক্যান করুন।
+                    </li>
+                  </ol>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-slate-500 px-1 pt-1">
+                  <span className="flex items-center gap-1.5 text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span>স্ক্যান করলে স্বয়ংক্রিয় কানেক্ট হবে...</span>
+                  </span>
+                  <button
+                    onClick={handleRestartQr}
+                    disabled={qrRefreshLoading}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${qrRefreshLoading ? 'animate-spin' : ''}`} />
+                    <span>QR রিফ্রেশ</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
+                <div className="w-10 h-10 rounded-full border-3 border-emerald-500/30 border-t-emerald-600 animate-spin" />
+                <h4 className="font-extrabold text-slate-800 text-sm">
+                  WhatsApp কিউআর কোড প্রস্তুত হচ্ছে...
+                </h4>
+                <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                  হোয়াটসঅ্যাপ সেশন ইনিশিয়ালাইজ হতে ২-৩ সেকেন্ড সময় লাগতে পারে।
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
