@@ -13,6 +13,8 @@ import { Boom } from '@hapi/boom';
 import path from 'path';
 import fs from 'fs';
 import { processMerchantWhatsAppMessage } from '../src/lib/whatsapp-merchant-copilot';
+import { processCustomerMessage } from '../src/lib/ai-sales-engine';
+import { query } from '../src/lib/db';
 
 const AUTH_DIR = path.join(process.cwd(), 'baileys_auth');
 
@@ -103,18 +105,82 @@ async function startWhatsAppBot() {
       console.log(`\n📩 [WhatsApp Message Received] From: +${rawPhone} | Text: "${text}"`);
 
       try {
-        // Send typing indicator to feel natural
         await sock.sendPresenceUpdate('composing', remoteJid);
 
-        // Process message through our core merchant copilot
-        const result = await processMerchantWhatsAppMessage(rawPhone, text);
+        // Find tenant and channel for this WhatsApp bot
+        const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
+        let targetTenantId: string | null = null;
+        let channelId: string | null = null;
 
-        // Pause a moment for realistic typing feel
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        const chanRes = await query(
+          `SELECT id, tenant_id, ai_active FROM channels WHERE platform = 'whatsapp' AND channel_identifier = $1 LIMIT 1;`,
+          [botPhone]
+        );
 
-        // Reply to merchant
-        await sock.sendMessage(remoteJid, { text: result.replyText });
-        console.log(`📤 [WhatsApp Reply Sent] To: +${rawPhone} | Store: ${result.storeName || 'N/A'}`);
+        if (chanRes.rows.length > 0) {
+          targetTenantId = chanRes.rows[0].tenant_id;
+          channelId = chanRes.rows[0].id;
+        }
+
+        if (!targetTenantId) {
+          const defaultTenant = await query(`SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1;`);
+          if (defaultTenant.rows.length > 0) {
+            targetTenantId = defaultTenant.rows[0].id;
+          }
+        }
+
+        // Check if sender is shop owner
+        const merchantCheck = await query(
+          `SELECT u.id as user_id, u.name as user_name, u.role
+           FROM users u
+           WHERE u.tenant_id = $1 AND (
+             u.phone = $2 OR (LENGTH($2) >= 10 AND RIGHT(COALESCE(u.phone, ''), 10) = RIGHT($2, 10))
+           ) LIMIT 1;`,
+          [targetTenantId, rawPhone]
+        );
+
+        const isOwner = merchantCheck.rows.length > 0;
+
+        if (isOwner) {
+          // SENDER IS OWNER -> Run Business Copilot
+          console.log(`👑 [WA Owner Query] From: +${rawPhone} | "${text}"`);
+          const result = await processMerchantWhatsAppMessage(rawPhone, text);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await sock.sendMessage(remoteJid, { text: result.replyText });
+          console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone}`);
+        } else {
+          // SENDER IS A CUSTOMER (From Facebook Post CTA or WhatsApp direct) -> Run AI Sales Consultant!
+          console.log(`🛍️ [WA Customer Sales] From: +${rawPhone} | "${text}"`);
+          if (targetTenantId) {
+            if (!channelId) {
+              const newChanRes = await query(
+                `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
+                 VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
+                 ON CONFLICT (tenant_id, platform, channel_identifier) DO UPDATE SET updated_at = NOW()
+                 RETURNING id;`,
+                [targetTenantId, botPhone || 'whatsapp_bot']
+              );
+              channelId = newChanRes.rows[0]?.id;
+            }
+
+            const salesResult = await processCustomerMessage({
+              tenantId: targetTenantId,
+              channelId: channelId || 'whatsapp_channel',
+              platform: 'whatsapp',
+              pageId: botPhone || 'whatsapp_bot',
+              senderId: rawPhone,
+              customerName: (msg as any).pushName || 'WhatsApp Customer',
+              messageText: text,
+              accessToken: '',
+            });
+
+            if (salesResult.replyText && !salesResult.isMuted) {
+              await new Promise((resolve) => setTimeout(resolve, 600));
+              await sock.sendMessage(remoteJid, { text: salesResult.replyText });
+              console.log(`📤 [WA Customer Reply Sent] To: +${rawPhone} | Order created: ${salesResult.orderCreated}`);
+            }
+          }
+        }
       } catch (err) {
         console.error('❌ Error handling WhatsApp message:', err);
         try {
