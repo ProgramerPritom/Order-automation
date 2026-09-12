@@ -1689,6 +1689,8 @@ export default function ChannelsPage() {
             </form>
           </div>
         </div>
+      )}
+
       {/* WhatsApp Web Live QR Connection Modal */}
       {qrModalOpen && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
