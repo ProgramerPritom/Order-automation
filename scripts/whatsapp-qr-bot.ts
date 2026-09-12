@@ -65,11 +65,28 @@ async function startWhatsAppBot() {
         console.log('❌ ডিভাইস থেকে লগআউট করা হয়েছে। পুনরায় QR স্ক্যান করতে baileys_auth ফোল্ডার মুছে স্ক্রিপ্ট আবার চালু করুন।');
       }
     } else if (connection === 'open') {
+      const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
       console.log('\n======================================================');
-      console.log('  ✅ WhatsApp এআই সহকারী সফলভাবে সংযুক্ত হয়েছে!');
+      console.log(`  ✅ WhatsApp এআই সহকারী সফলভাবে সংযুক্ত হয়েছে! (+${botPhone})`);
       console.log('  💬 এখন যেকোনো শপ ওনার তাদের নম্বর থেকে মেসেজ দিলেই');
       console.log('     স্বয়ংক্রিয়ভাবে লাইভ ডাটাবেজ থেকে উত্তর পাবেন।');
       console.log('======================================================\n');
+
+      // Send welcome message to owner's chat
+      if (botPhone) {
+        try {
+          const ownerJid = `${botPhone}@s.whatsapp.net`;
+          const welcomeText =
+            `🎉 *আসসালামু আলাইকুম! KothaShop WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
+            `আমি আপনার অনলাইন শপের *স্মার্ট এআই সেলস ও বিজনেস অ্যাসিস্ট্যান্ট*।\n\n` +
+            `📌 *আপনি যেভাবে আমাকে ব্যবহার করতে পারবেন:*\n` +
+            `১️⃣ *দোকানের হিসাব ও তথ্য জানতে:* এই চ্যাটেই আমাকে সরাসরি মেসেজ পাঠাতে পারেন (যেমন: *"আজকের বিক্রি কত?"*, *"অর্ডার কয়টি?"*, *"স্টক আপডেট"* বা *"মেনু"* লিখে পাঠান)।\n` +
+            `২️⃣ *কাস্টমার অর্ডার অটোমেশন:* যেকোনো কাস্টমার আপনার এই নম্বরে মেসেজ পাঠালে আমি স্বয়ংক্রিয়ভাবে তাদের সাথে কথা বলে সাইজ/ঠিকানা নিয়ে ডাটাবেজে অর্ডার কনফার্ম করে দেব!\n\n` +
+            `💡 _টেস্ট করতে এখনই নিচে যেকোনো মেসেজ লিখে পাঠান (যেমন: "আজকের অর্ডার" বা "হেল্প")!_`;
+
+          sock.sendMessage(ownerJid, { text: welcomeText }).catch(() => {});
+        } catch (_) {}
+      }
     }
   });
 
@@ -78,12 +95,22 @@ async function startWhatsAppBot() {
     if (m.type !== 'notify') return;
 
     for (const msg of m.messages) {
-      // Ignore bot's own messages or empty messages
-      if (msg.key.fromMe || !msg.message) continue;
+      if (!msg.message) continue;
 
       const remoteJid = msg.key.remoteJid || '';
-      // Only process direct one-on-one user chats, ignore broadcast channels and groups
       if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+      const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
+      const cleanBotPhone = botPhone.replace(/\D/g, '');
+      const rawRemotePhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+
+      // Check if this message was sent to SELF ("Message yourself" in WhatsApp)
+      const isSelfChat =
+        (cleanBotPhone && (rawRemotePhone === cleanBotPhone || rawRemotePhone.endsWith(cleanBotPhone.slice(-10)))) ||
+        remoteJid === `${botPhone}@s.whatsapp.net`;
+
+      // Ignore outgoing messages sent to OTHER people (avoid loop)
+      if (msg.key.fromMe && !isSelfChat) continue;
 
       const text =
         msg.message.conversation ||
@@ -94,13 +121,11 @@ async function startWhatsAppBot() {
       if (!text || !text.trim()) continue;
 
       const rawPhone = remoteJid.replace('@s.whatsapp.net', '');
-      console.log(`\n📩 [WhatsApp Message Received] From: +${rawPhone} | Text: "${text}"`);
+      console.log(`\n📩 [WhatsApp Message Received] From: +${rawPhone} | isSelfChat: ${isSelfChat} | Text: "${text}"`);
 
       try {
         await sock.sendPresenceUpdate('composing', remoteJid);
 
-        // Find tenant and channel for this WhatsApp bot
-        const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
         let targetTenantId: string | null = null;
         let channelId: string | null = null;
 
@@ -131,7 +156,10 @@ async function startWhatsAppBot() {
           [targetTenantId, rawPhone]
         );
 
-        const isOwner = merchantCheck.rows.length > 0;
+        const isOwner =
+          isSelfChat ||
+          (cleanBotPhone && rawPhone.endsWith(cleanBotPhone.slice(-10))) ||
+          merchantCheck.rows.length > 0;
 
         if (isOwner) {
           // SENDER IS OWNER -> Run Business Copilot

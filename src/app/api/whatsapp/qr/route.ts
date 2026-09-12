@@ -62,6 +62,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const action = body.action || 'start';
 
+    if (action === 'greeting') {
+      const wa = getWhatsAppService();
+      const sent = await wa.sendWelcomeGreeting();
+      return NextResponse.json({
+        success: sent,
+        message: sent
+          ? 'টেস্ট মেসেজ সফলভাবে আপনার হোয়াটসঅ্যাপে পাঠানো হয়েছে!'
+          : 'হোয়াটসঅ্যাপ সংযোগ সক্রিয় নেই বা প্রস্তুত নয়।',
+        ...wa.getStatus(),
+      });
+    }
+
     if (action === 'disconnect') {
       const wa = await resetWhatsAppService();
       return NextResponse.json({

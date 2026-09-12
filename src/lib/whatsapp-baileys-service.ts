@@ -157,6 +157,9 @@ class WhatsAppBotService {
 
           // Register / sync channel in database
           this.syncChannelToDatabase();
+
+          // Send immediate welcome confirmation greeting to the owner's WhatsApp
+          this.sendWelcomeGreeting();
         }
       });
 
@@ -165,10 +168,21 @@ class WhatsAppBotService {
         if (m.type !== 'notify') return;
 
         for (const msg of m.messages) {
-          if (msg.key.fromMe || !msg.message) continue;
+          if (!msg.message) continue;
 
           const remoteJid = msg.key.remoteJid || '';
           if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+          const cleanPhone = this.phone ? this.phone.replace(/\D/g, '') : '';
+          const rawRemotePhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+
+          // Check if this message was sent to SELF ("Message yourself" / Note to Self in WhatsApp)
+          const isSelfChat =
+            (cleanPhone && (rawRemotePhone === cleanPhone || rawRemotePhone.endsWith(cleanPhone.slice(-10)))) ||
+            remoteJid === `${this.phone}@s.whatsapp.net`;
+
+          // If fromMe is true and it's NOT self-chat, ignore (avoid echoing bot's own replies to others)
+          if (msg.key.fromMe && !isSelfChat) continue;
 
           const text =
             msg.message.conversation ||
@@ -179,7 +193,7 @@ class WhatsAppBotService {
           if (!text || !text.trim()) continue;
 
           const rawPhone = remoteJid.replace('@s.whatsapp.net', '');
-          console.log(`\n📩 [WA In-App Received] From: +${rawPhone} | Text: "${text}"`);
+          console.log(`\n📩 [WA In-App Received] From: +${rawPhone} | isSelfChat: ${isSelfChat} | Text: "${text}"`);
 
           try {
             await sock.sendPresenceUpdate('composing', remoteJid);
@@ -219,13 +233,16 @@ class WhatsAppBotService {
               [targetTenantId, rawPhone]
             );
 
-            const isOwner = merchantCheck.rows.length > 0;
+            const isOwner =
+              isSelfChat ||
+              (cleanPhone && rawPhone.endsWith(cleanPhone.slice(-10))) ||
+              merchantCheck.rows.length > 0;
 
             if (isOwner) {
               // SENDER IS THE SHOP OWNER -> Run Business Copilot
               console.log(`👑 [WhatsApp Copilot] Owner query from +${rawPhone}: "${text}"`);
               const result = await processMerchantWhatsAppMessage(rawPhone, text);
-              await new Promise((resolve) => setTimeout(resolve, 500));
+              await new Promise((resolve) => setTimeout(resolve, 400));
               await sock.sendMessage(remoteJid, { text: result.replyText });
               console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone}`);
             } else {
@@ -310,6 +327,35 @@ class WhatsAppBotService {
       console.log(`💾 [Baileys Web] Synced WhatsApp channel to DB for tenant ${targetTenantId}`);
     } catch (dbErr) {
       console.error('Failed to sync WhatsApp channel to DB:', dbErr);
+    }
+  }
+
+  public async sendWelcomeGreeting(): Promise<boolean> {
+    if (!this.sock || !this.phone) {
+      console.log('Cannot send welcome greeting: socket or phone not ready', { hasSock: !!this.sock, phone: this.phone });
+      return false;
+    }
+
+    try {
+      const ownerJid = `${this.phone}@s.whatsapp.net`;
+      const welcomeText =
+        `🎉 *আসসালামু আলাইকুম! KothaShop WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
+        `আমি আপনার অনলাইন শপের *স্মার্ট এআই সেলস ও বিজনেস অ্যাসিস্ট্যান্ট*।\n\n` +
+        `📌 *আপনি যেভাবে আমাকে ব্যবহার করতে পারবেন:*\n` +
+        `১️⃣ *দোকানের হিসাব ও তথ্য জানতে:* এই চ্যাটেই আমাকে সরাসরি মেসেজ পাঠাতে পারেন, যেমন:\n` +
+        `   • *"আজকের বিক্রি কত?"*\n` +
+        `   • *"আজকে কয়টা অর্ডার পড়েছে?"*\n` +
+        `   • *"স্টকে কী কী প্রোডাক্ট আছে?"*\n` +
+        `   • *"মেনু"* অথবা *"হেল্প"*\n\n` +
+        `২️⃣ *কাস্টমার অর্ডার অটোমেশন:* আপনার ফেসবুক পেজ বা অন্য যেকোনো কাস্টমার আপনার এই নম্বরে মেসেজ পাঠালে আমি স্বয়ংক্রিয়ভাবে তাদের সাথে কথা বলে সাইজ/ঠিকানা নিয়ে ডাটাবেজে অর্ডার কনফার্ম করে দেব!\n\n` +
+        `💡 _টেস্ট করতে এখনই নিচে যেকোনো মেসেজ লিখে পাঠান (যেমন: "আজকের অর্ডার" বা "হেল্প")!_`;
+
+      await this.sock.sendMessage(ownerJid, { text: welcomeText });
+      console.log(`📨 [Baileys Web] Welcome greeting sent to owner chat: ${ownerJid}`);
+      return true;
+    } catch (err) {
+      console.error('Failed to send welcome greeting:', err);
+      return false;
     }
   }
 

@@ -77,6 +77,7 @@ export default function ChannelsPage() {
   const [connectedUser, setConnectedUser] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [qrRefreshLoading, setQrRefreshLoading] = useState(false);
+  const [sendingGreeting, setSendingGreeting] = useState(false);
 
   // Poll WhatsApp QR status when modal is open
   useEffect(() => {
@@ -154,6 +155,30 @@ export default function ChannelsPage() {
       console.error(e);
     } finally {
       setQrRefreshLoading(false);
+    }
+  };
+
+  const handleSendGreeting = async () => {
+    setSendingGreeting(true);
+    try {
+      const res = await fetch('/api/whatsapp/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'greeting' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOauthSuccessMessage('🎉 আপনার WhatsApp-এ সফলভাবে টেস্ট মেসেজ পাঠানো হয়েছে! অ্যাপটি চেক করুন।');
+        setOauthSuccess(true);
+        setTimeout(() => setOauthSuccess(false), 7000);
+      } else {
+        alert(data.message || 'মেসেজ পাঠাতে ব্যর্থ হয়েছে।');
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert('মেসেজ পাঠাতে সমস্যা হয়েছে।');
+    } finally {
+      setSendingGreeting(false);
     }
   };
 
@@ -1778,37 +1803,68 @@ export default function ChannelsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="pt-2 text-xs text-slate-600 leading-relaxed text-left bg-white/90 p-3 rounded-xl border border-emerald-100 space-y-1">
-                    <p className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>এআই অ্যাসিস্ট্যান্ট সক্রিয়:</span>
+                  <div className="pt-2 text-xs text-slate-700 leading-relaxed text-left bg-white/95 p-3.5 rounded-2xl border border-emerald-200/80 space-y-2.5 shadow-sm">
+                    <p className="font-extrabold text-emerald-950 text-xs flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>কীভাবে কথা বলবেন ও টেস্ট করবেন:</span>
                     </p>
-                    <p className="text-[11px] text-slate-500">
-                      যেকোনো মার্চেন্ট বা কাস্টমার এই নম্বরে হোয়াটসঅ্যাপে মেসেজ পাঠালে (যেমন: "অর্ডার", "স্টক", "বিক্রি") এআই স্বয়ংক্রিয়ভাবে ডাটাবেজ থেকে তথ্য ও উত্তর দেবে।
-                    </p>
+
+                    <div className="space-y-2 text-[11px] text-slate-600">
+                      <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100 flex items-start gap-2">
+                        <span className="font-black text-emerald-800 shrink-0">১.</span>
+                        <div>
+                          <p className="font-bold text-slate-900">নিজের ফোন থেকেই মেসেজ পাঠান:</p>
+                          <p className="text-slate-600 mt-0.5">
+                            আপনার WhatsApp অ্যাপ খুলুন। চ্যাট লিস্টের উপরে <strong className="text-emerald-800">"Message yourself" বা "(You)"</strong> চ্যাটে গিয়ে লিখুন: <span className="font-bold text-slate-900">"আজকের অর্ডার কয়টা?"</span> বা <span className="font-bold text-slate-900">"বিক্রি কত?"</span>। এআই তাৎক্ষণিক ডাটাবেজ থেকে হিসাব দেবে।
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-teal-50/70 border border-teal-100 flex items-start gap-2">
+                        <span className="font-black text-teal-800 shrink-0">২.</span>
+                        <div>
+                          <p className="font-bold text-slate-900">অন্য কোনো নম্বর / কাস্টমার দিয়ে টেস্ট:</p>
+                          <p className="text-slate-600 mt-0.5">
+                            অন্য কোনো ফোন থেকে আপনার এই নম্বরে (<strong className="text-teal-900 font-mono">+{connectedPhone}</strong>) মেসেজ দিলে এআই সেলস কনসালট্যান্ট স্বয়ংক্রিয়ভাবে কথা বলে প্রোডাক্ট দেখিয়ে অর্ডার নিয়ে নেবে!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 <div className="space-y-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQrModalOpen(false);
-                      openTestModal({
-                        id: 'whatsapp-copilot-bot',
-                        platform: 'whatsapp',
-                        channel_identifier: connectedPhone || '01712345678',
-                        channel_name: connectedUser || 'WhatsApp AI Manager',
-                        ai_active: true,
-                        webhook_verified: true,
-                        quality_rating: 'GREEN',
-                      });
-                    }}
-                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>💬 এআই টেস্ট চ্যাটবক্স ওপেন করুন</span>
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSendGreeting}
+                      disabled={sendingGreeting}
+                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5 text-amber-300" />
+                      <span>{sendingGreeting ? 'পাঠানো হচ্ছে...' : '📱 ফোনে টেস্ট মেসেজ পাঠান'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQrModalOpen(false);
+                        openTestModal({
+                          id: 'whatsapp-copilot-bot',
+                          platform: 'whatsapp',
+                          channel_identifier: connectedPhone || '01712345678',
+                          channel_name: connectedUser || 'WhatsApp AI Manager',
+                          ai_active: true,
+                          webhook_verified: true,
+                          quality_rating: 'GREEN',
+                        });
+                      }}
+                      className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>💬 স্ক্রিনে টেস্ট চ্যাটবক্স</span>
+                    </button>
+                  </div>
 
                   {/* Prominent WhatsApp Logout / Disconnect Section */}
                   <div className="p-3 bg-rose-50/70 border border-rose-200/80 rounded-2xl flex items-center justify-between gap-3">
