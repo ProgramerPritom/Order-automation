@@ -117,7 +117,7 @@ export default function ChannelsPage() {
   };
 
   const handleDisconnectWhatsApp = async () => {
-    if (!confirm('আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট করতে চান?')) return;
+    if (!confirm('আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট / লগআউট করতে চান?')) return;
     setDisconnecting(true);
     try {
       const res = await fetch('/api/whatsapp/qr', {
@@ -131,6 +131,9 @@ export default function ChannelsPage() {
       setConnectedPhone(null);
       setConnectedUser(null);
       fetchChannels();
+      setOauthSuccessMessage('WhatsApp অ্যাকাউন্ট সফলভাবে লগআউট ও সংযোগ বিচ্ছিন্ন করা হয়েছে।');
+      setOauthSuccess(true);
+      setTimeout(() => setOauthSuccess(false), 5000);
     } catch (e) {
       console.error(e);
     } finally {
@@ -144,7 +147,7 @@ export default function ChannelsPage() {
       await fetch('/api/whatsapp/qr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start' }),
+        body: JSON.stringify({ action: 'restart' }),
       });
       await fetchQrStatus();
     } catch (e) {
@@ -327,6 +330,18 @@ export default function ChannelsPage() {
       const data = await res.json();
       if (res.ok) {
         setChannels((prev) => prev.filter((c) => c.id !== channelId));
+        const deletedChannel = channels.find((c) => c.id === channelId);
+        if (deletedChannel?.platform === 'whatsapp') {
+          setBotStatus('idle');
+          setQrDataUrl(null);
+          setConnectedPhone(null);
+          setConnectedUser(null);
+          fetch('/api/whatsapp/qr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'disconnect' }),
+          }).catch(() => {});
+        }
         setOauthSuccessMessage(data.message || `"${name}" চ্যানেলটি সফলভাবে মুছে ফেলা হয়েছে।`);
         setOauthSuccess(true);
         setOauthError(null);
@@ -587,26 +602,48 @@ export default function ChannelsPage() {
             <span>ইনস্টাগ্রাম কানেক্ট</span>
           </button>
 
-          {/* WhatsApp Web In-Dashboard QR Connect Button */}
-          <button
-            onClick={() => {
-              setQrModalOpen(true);
-              fetchQrStatus();
-            }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-          >
-            <QrCode className="w-4 h-4" />
-            <span>WhatsApp কিউআর দিয়ে যুক্ত করুন</span>
-            {botStatus === 'connected' ? (
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-emerald-300 text-emerald-950 font-black">
-                Connected
-              </span>
-            ) : (
+          {/* WhatsApp Web In-Dashboard QR Connect / Connected Status Button */}
+          {botStatus === 'connected' ? (
+            <div className="inline-flex items-center gap-1.5 p-1 bg-white rounded-2xl border border-emerald-200 shadow-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setQrModalOpen(true);
+                  fetchQrStatus();
+                }}
+                className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs text-emerald-900 bg-emerald-50 hover:bg-emerald-100 transition-all cursor-pointer"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>WhatsApp: +{connectedPhone || 'সংযুক্ত'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDisconnectWhatsApp}
+                disabled={disconnecting}
+                title="WhatsApp থেকে লগআউট করুন"
+                className="px-2.5 py-1.5 rounded-xl font-bold text-xs text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 transition-all flex items-center gap-1 shadow-xs"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                <span className="hidden sm:inline">{disconnecting ? 'লগআউট...' : 'লগআউট'}</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setQrModalOpen(true);
+                fetchQrStatus();
+              }}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>WhatsApp কিউআর দিয়ে যুক্ত করুন</span>
               <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-white/20 text-white font-bold">
                 QR Web
               </span>
-            )}
-          </button>
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -1752,7 +1789,7 @@ export default function ChannelsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2.5 pt-2">
+                <div className="space-y-3 pt-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -1767,21 +1804,32 @@ export default function ChannelsPage() {
                         quality_rating: 'GREEN',
                       });
                     }}
-                    className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
+                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
                   >
                     <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>💬 এআই টেস্ট চ্যাটবক্স</span>
+                    <span>💬 এআই টেস্ট চ্যাটবক্স ওপেন করুন</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleDisconnectWhatsApp}
-                    disabled={disconnecting}
-                    className="py-2.5 px-3 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shrink-0"
-                  >
-                    <LogOut className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{disconnecting ? 'ডিসকানেক্ট...' : 'লগআউট'}</span>
-                  </button>
+                  {/* Prominent WhatsApp Logout / Disconnect Section */}
+                  <div className="p-3 bg-rose-50/70 border border-rose-200/80 rounded-2xl flex items-center justify-between gap-3">
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+                        <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                        <span>WhatsApp থেকে লগআউট</span>
+                      </p>
+                      <p className="text-[10px] text-rose-700 mt-0.5">
+                        লগআউট করলে অন্য WhatsApp অ্যাকাউন্ট যুক্ত করতে পারবেন।
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDisconnectWhatsApp}
+                      disabled={disconnecting}
+                      className="py-2 px-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0"
+                    >
+                      <span>{disconnecting ? 'লগআউট হচ্ছে...' : 'লগআউট করুন'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : botStatus === 'qr_ready' && qrDataUrl ? (
@@ -1844,6 +1892,15 @@ export default function ChannelsPage() {
                 <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
                   হোয়াটসঅ্যাপ সেশন ইনিশিয়ালাইজ হতে ২-৩ সেকেন্ড সময় লাগতে পারে।
                 </p>
+                <button
+                  type="button"
+                  onClick={handleRestartQr}
+                  disabled={qrRefreshLoading}
+                  className="mt-2 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${qrRefreshLoading ? 'animate-spin' : ''}`} />
+                  <span>পুনরায় কিউআর প্রস্তুত করুন</span>
+                </button>
               </div>
             )}
           </div>

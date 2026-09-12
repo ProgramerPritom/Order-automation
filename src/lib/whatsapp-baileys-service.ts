@@ -1,7 +1,6 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
-  fetchLatestBaileysVersion,
   WASocket,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
@@ -37,6 +36,7 @@ class WhatsAppBotService {
   public tenantId: string | null = null;
   private connectedAt: number | null = null;
   private isInitializing: boolean = false;
+  private initStartTime: number = 0;
 
   constructor() {
     // Check if auth folder exists with existing credentials
@@ -55,27 +55,28 @@ class WhatsAppBotService {
       return this.getStatus();
     }
 
-    if (this.isInitializing) {
+    // Allow re-attempt if initialization took more than 8 seconds
+    if (this.isInitializing && Date.now() - this.initStartTime < 8000) {
+      console.log('[Baileys Service] Already initializing, returning current status:', this.status);
       return this.getStatus();
     }
 
     this.isInitializing = true;
+    this.initStartTime = Date.now();
     this.status = 'starting';
     this.lastError = null;
+    console.log('[Baileys Service] Initiating start sequence...');
 
     try {
       if (!fs.existsSync(AUTH_DIR)) {
         fs.mkdirSync(AUTH_DIR, { recursive: true });
       }
 
+      console.log(`[Baileys Service] Loading auth state from ${AUTH_DIR}`);
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-      const { version } = await fetchLatestBaileysVersion().catch(() => ({
-        version: [2, 3000, 1015901307] as any,
-        isLatest: true,
-      }));
+      console.log('[Baileys Service] Auth state loaded, creating makeWASocket...');
 
       const sock: WASocket = makeWASocket({
-        version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
@@ -84,6 +85,7 @@ class WhatsAppBotService {
       });
 
       this.sock = sock;
+      console.log('[Baileys Service] makeWASocket created, binding event listeners...');
 
       // Save credentials update
       sock.ev.on('creds.update', saveCreds);
@@ -91,6 +93,7 @@ class WhatsAppBotService {
       // Connection updates
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        console.log('[Baileys Service] connection.update:', { connection, hasQr: !!qr });
 
         if (qr) {
           this.qrRaw = qr;
@@ -104,8 +107,10 @@ class WhatsAppBotService {
               },
             });
             this.status = 'qr_ready';
+            this.isInitializing = false;
             console.log('📱 [Baileys Web] New QR Code generated for in-dashboard scan');
           } catch (qrErr) {
+            this.isInitializing = false;
             console.error('Error generating QR DataURL:', qrErr);
           }
         }
@@ -311,8 +316,15 @@ class WhatsAppBotService {
   public async disconnect(): Promise<WhatsAppStatusResponse> {
     try {
       if (this.sock) {
-        await this.sock.logout().catch(() => {});
-        this.sock.end(undefined);
+        if (this.status === 'connected') {
+          await Promise.race([
+            this.sock.logout().catch(() => {}),
+            new Promise((r) => setTimeout(r, 1500)),
+          ]);
+        }
+        try {
+          this.sock.end(undefined);
+        } catch (_) {}
         this.sock = null;
       }
     } catch (err) {
@@ -360,3 +372,14 @@ export function getWhatsAppService(): WhatsAppBotService {
   }
   return globalThis.__whatsapp_bot__;
 }
+
+export async function resetWhatsAppService(): Promise<WhatsAppBotService> {
+  if (globalThis.__whatsapp_bot__) {
+    try {
+      await globalThis.__whatsapp_bot__.disconnect();
+    } catch (_) {}
+  }
+  globalThis.__whatsapp_bot__ = new WhatsAppBotService();
+  return globalThis.__whatsapp_bot__;
+}
+

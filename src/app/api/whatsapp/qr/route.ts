@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getWhatsAppService } from '@/lib/whatsapp-baileys-service';
+import { getWhatsAppService, resetWhatsAppService } from '@/lib/whatsapp-baileys-service';
 import { verifyAccessToken } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -18,24 +18,24 @@ async function getAuthTenantId(req: NextRequest): Promise<string | undefined> {
 
 /**
  * GET /api/whatsapp/qr
- * Returns the current status of the WhatsApp bot & QR DataURL (auto-starts if idle)
+ * Returns current WhatsApp bot status & QR DataURL (auto-starts if idle)
  */
 export async function GET(req: NextRequest) {
   try {
     const tenantId = await getAuthTenantId(req);
     const wa = getWhatsAppService();
 
-    // If bot is idle, auto-trigger start to generate QR code
+    // If bot is idle, auto-trigger start to generate QR code in background
     if (wa.status === 'idle') {
-      await wa.start(tenantId);
+      wa.start(tenantId).catch((err) => console.error('Auto-start WhatsApp error:', err));
     }
 
-    // If starting and waiting for initial QR code, wait up to 3 seconds
+    // If starting and waiting for initial QR code, wait a brief moment (max 1.5s)
     if (wa.status === 'starting' && !wa.qrDataUrl) {
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 180));
         const current = (wa as any).status;
-        if (current === 'qr_ready' || current === 'connected') break;
+        if (current === 'qr_ready' || current === 'connected' || wa.qrDataUrl) break;
       }
     }
 
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/whatsapp/qr
- * Start session, disconnect session, or check status
+ * Start session, restart session, or disconnect / logout
  */
 export async function POST(req: NextRequest) {
   try {
@@ -62,28 +62,39 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const action = body.action || 'start';
 
-    const wa = getWhatsAppService();
-
     if (action === 'disconnect') {
-      const result = await wa.disconnect();
+      const wa = await resetWhatsAppService();
       return NextResponse.json({
         success: true,
-        message: 'WhatsApp session disconnected',
-        ...result,
+        message: 'WhatsApp session disconnected & logged out',
+        ...wa.getStatus(),
       });
     }
 
-    if (action === 'start') {
-      const result = await wa.start(tenantId);
+    if (action === 'restart') {
+      const wa = await resetWhatsAppService();
+      wa.start(tenantId).catch((err) => console.error('Restart WhatsApp error:', err));
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 180));
+        if (wa.status === 'qr_ready' || wa.qrDataUrl) break;
+      }
       return NextResponse.json({
         success: true,
-        message: 'WhatsApp session started',
-        ...result,
+        message: 'WhatsApp session restarted',
+        ...wa.getStatus(),
       });
+    }
+
+    const wa = getWhatsAppService();
+    wa.start(tenantId).catch((err) => console.error('Start WhatsApp error:', err));
+    for (let i = 0; i < 8; i++) {
+      await new Promise((r) => setTimeout(r, 180));
+      if (wa.status === 'qr_ready' || wa.qrDataUrl) break;
     }
 
     return NextResponse.json({
       success: true,
+      message: 'WhatsApp session started',
       ...wa.getStatus(),
     });
   } catch (error: any) {
@@ -94,3 +105,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

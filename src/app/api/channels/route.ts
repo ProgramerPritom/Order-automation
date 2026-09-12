@@ -197,6 +197,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'চ্যানেলটি খুঁজে পাওয়া যায়নি।' }, { status: 404 });
     }
 
+    if (res.rows[0]?.platform === 'whatsapp') {
+      try {
+        const { resetWhatsAppService } = await import('@/lib/whatsapp-baileys-service');
+        await resetWhatsAppService();
+      } catch (_) {}
+    }
+
     return NextResponse.json({
       success: true,
       message: `"${res.rows[0].channel_name}" সফলভাবে সংযোগ বিচ্ছিন্ন (Disconnected) করা হয়েছে।`,

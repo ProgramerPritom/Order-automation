@@ -4,7 +4,6 @@ dotenv.config();
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
-  fetchLatestBaileysVersion,
   WASocket,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
@@ -28,15 +27,8 @@ async function startWhatsAppBot() {
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({
-    version: [2, 3000, 1015901307] as any,
-    isLatest: true,
-  }));
-
-  console.log(`[Baileys] WA Version: ${version.join('.')}, isLatest: ${isLatest}`);
 
   const sock: WASocket = makeWASocket({
-    version,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false,
     auth: state,
