@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
+import { getWhatsAppService } from '@/lib/whatsapp-baileys-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,8 +36,35 @@ export async function GET(req: NextRequest) {
       [auth.tenantId]
     );
 
+    // Synchronize WhatsApp status in real-time
+    const wa = getWhatsAppService();
+    const isWaConnected = wa.status === 'connected';
+
+    let rows = res.rows;
+    if (!isWaConnected) {
+      // If WhatsApp bot is disconnected or logged out, remove stale row
+      rows = rows.filter((c: any) => c.platform !== 'whatsapp');
+      query(`DELETE FROM channels WHERE platform = 'whatsapp' AND tenant_id = $1;`, [auth.tenantId]).catch(() => {});
+    } else if (wa.phone && !rows.some((c: any) => c.platform === 'whatsapp')) {
+      // If connected in real-time but not yet in this tenant's list, register it
+      const channelName = wa.userName ? `${wa.userName} (WhatsApp)` : 'WhatsApp Business AI';
+      try {
+        const insertRes = await query(
+          `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
+           VALUES ($1, 'whatsapp', $2, $3, true, true, 'GREEN')
+           ON CONFLICT (platform, channel_identifier) 
+           DO UPDATE SET tenant_id = EXCLUDED.tenant_id, channel_name = EXCLUDED.channel_name, ai_active = true, updated_at = NOW()
+           RETURNING id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating, created_at, updated_at;`,
+          [auth.tenantId, wa.phone, channelName]
+        );
+        if (insertRes.rows.length > 0) {
+          rows.unshift(insertRes.rows[0]);
+        }
+      } catch (_) {}
+    }
+
     return NextResponse.json({
-      channels: res.rows,
+      channels: rows,
     });
   } catch (error: any) {
     console.error('Fetch channels error:', error);

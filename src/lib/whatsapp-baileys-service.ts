@@ -38,6 +38,7 @@ class WhatsAppBotService {
   private isInitializing: boolean = false;
   private initStartTime: number = 0;
   private sentBotMessageIds = new Set<string>();
+  private hasSentWelcomeForSession: boolean = false;
 
   constructor() {
     // Check if auth folder exists with existing credentials
@@ -132,14 +133,35 @@ class WhatsAppBotService {
               this.start();
             }, 3000);
           } else {
+            console.log('[Baileys Web] Disconnected permanently / logged out.');
+            const disconnectedPhone = this.phone;
+            const currentTenant = this.tenantId;
+
             this.status = 'idle';
             this.phone = null;
             this.userName = null;
             this.isInitializing = false;
+            this.hasSentWelcomeForSession = false;
+
             // Clean auth folder if logged out
             try {
               if (fs.existsSync(AUTH_DIR)) {
                 fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+              }
+            } catch (_) {}
+
+            // Clean up WhatsApp channel from DB
+            try {
+              if (disconnectedPhone) {
+                query(
+                  `DELETE FROM channels WHERE platform = 'whatsapp' AND (channel_identifier = $1 OR channel_identifier = $2);`,
+                  [disconnectedPhone, `+${disconnectedPhone}`]
+                ).catch(() => {});
+              } else if (currentTenant) {
+                query(
+                  `DELETE FROM channels WHERE platform = 'whatsapp' AND tenant_id = $1;`,
+                  [currentTenant]
+                ).catch(() => {});
               }
             } catch (_) {}
           }
@@ -159,8 +181,11 @@ class WhatsAppBotService {
           // Register / sync channel in database
           this.syncChannelToDatabase();
 
-          // Send immediate welcome confirmation greeting to the owner's WhatsApp
-          this.sendWelcomeGreeting();
+          // Send welcome confirmation greeting ONLY ONCE per session (not on reconnects/reloads)
+          if (!this.hasSentWelcomeForSession) {
+            this.hasSentWelcomeForSession = true;
+            this.sendWelcomeGreeting();
+          }
         }
       });
 
@@ -409,6 +434,9 @@ class WhatsAppBotService {
   }
 
   public async disconnect(): Promise<WhatsAppStatusResponse> {
+    const disconnectedPhone = this.phone;
+    const currentTenant = this.tenantId;
+
     try {
       if (this.sock) {
         if (this.status === 'connected') {
@@ -432,6 +460,24 @@ class WhatsAppBotService {
       }
     } catch (_) {}
 
+    // Clean up WhatsApp channel record from database
+    try {
+      if (disconnectedPhone) {
+        await query(
+          `DELETE FROM channels WHERE platform = 'whatsapp' AND (channel_identifier = $1 OR channel_identifier = $2);`,
+          [disconnectedPhone, `+${disconnectedPhone}`]
+        );
+      } else if (currentTenant) {
+        await query(
+          `DELETE FROM channels WHERE platform = 'whatsapp' AND tenant_id = $1;`,
+          [currentTenant]
+        );
+      }
+      console.log('🗑️ [Baileys Web] Removed WhatsApp channel from DB upon disconnect');
+    } catch (dbErr) {
+      console.error('Failed to remove WhatsApp channel from DB:', dbErr);
+    }
+
     this.status = 'idle';
     this.qrRaw = null;
     this.qrDataUrl = null;
@@ -440,6 +486,7 @@ class WhatsAppBotService {
     this.connectedAt = null;
     this.lastError = null;
     this.isInitializing = false;
+    this.hasSentWelcomeForSession = false;
 
     return this.getStatus();
   }

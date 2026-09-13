@@ -123,18 +123,24 @@ export default function ChannelsPage() {
   const handleDisconnectWhatsApp = async () => {
     if (!confirm('আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট / লগআউট করতে চান?')) return;
     setDisconnecting(true);
+    // Immediately clear WhatsApp from state optimistically
+    setChannels((prev) => prev.filter((c) => c.platform !== 'whatsapp'));
+    setBotStatus('idle');
+    setQrDataUrl(null);
+    setConnectedPhone(null);
+    setConnectedUser(null);
     try {
+      const token = getSessionToken();
       const res = await fetch('/api/whatsapp/qr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ action: 'disconnect' }),
       });
-      const data = await res.json();
-      setBotStatus('idle');
-      setQrDataUrl(null);
-      setConnectedPhone(null);
-      setConnectedUser(null);
-      fetchChannels();
+      await res.json();
+      await fetchChannels();
       setOauthSuccessMessage('WhatsApp অ্যাকাউন্ট সফলভাবে লগআউট ও সংযোগ বিচ্ছিন্ন করা হয়েছে।');
       setOauthSuccess(true);
       setTimeout(() => setOauthSuccess(false), 5000);
