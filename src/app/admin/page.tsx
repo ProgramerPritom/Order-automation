@@ -172,7 +172,7 @@ export default function SuperAdminPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-extrabold text-white tracking-tight">
-                  KothaShop <span className="text-purple-400">Super Admin</span>
+                  ShopPilot <span className="text-purple-400">Super Admin</span>
                 </h1>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40">
                   Master Control

@@ -148,7 +148,7 @@ export async function processCustomerMessage(
       );
 
       shop = tenantRes.rows[0] || {
-        name: 'KothaShop Partner',
+        name: 'ShopPilot Partner',
         about_shop: 'একটি বিশ্বস্ত অনলাইন শপ',
         delivery_inside_dhaka: 80,
         delivery_outside_dhaka: 130,

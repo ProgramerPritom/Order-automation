@@ -1,5 +1,5 @@
 /**
- * Google Gemini AI Helper for KothaShop.ai
+ * Google Gemini AI Helper for ShopPilot.ai
  * Utilizes gemini-2.5-flash for ultra-fast, high-accuracy conversational responses
  */
 

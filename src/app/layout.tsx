@@ -16,7 +16,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'KothaShop.ai — 24/7 Social Commerce AI Sales Agent & Order Engine',
+  title: 'ShopPilot.ai — 24/7 Social Commerce AI Sales Agent & Order Engine',
   description:
     'Turn Facebook Messenger, Instagram DM, and WhatsApp conversations into confirmed e-commerce orders 24/7 with RAG AI catalog, real-time inventory, and n8n automation.',
   icons: {

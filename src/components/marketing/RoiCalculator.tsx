@@ -103,7 +103,7 @@ export default function RoiCalculator() {
             <div className="p-8 rounded-2xl bg-gradient-to-br from-indigo-900/60 to-slate-900 border border-indigo-500/40 text-center flex flex-col justify-between h-full">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-300">
-                  KothaShop দিয়ে প্রতি মাসে অতিরিক্ত আয়
+                  ShopPilot দিয়ে প্রতি মাসে অতিরিক্ত আয়
                 </span>
                 <p className="mt-3 text-4xl sm:text-5xl font-black text-emerald-400">
                   ৳ {recoveredRevenue.toLocaleString()}

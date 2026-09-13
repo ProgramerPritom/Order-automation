@@ -67,7 +67,7 @@ export default function PainVsRelief() {
             রোজকার যন্ত্রণা <span className="text-indigo-400">→</span> এআই-এর স্বস্তি
           </h2>
           <p className="mt-3 text-sm text-slate-400">
-            প্রতিদিন যে সমস্যাগুলো আপনার সময় ও টাকা কেড়ে নিচ্ছে — KothaShop.ai ঠিক কীভাবে সমাধান করে, দেখে নিন।
+            প্রতিদিন যে সমস্যাগুলো আপনার সময় ও টাকা কেড়ে নিচ্ছে — ShopPilot.ai ঠিক কীভাবে সমাধান করে, দেখে নিন।
           </p>
         </div>
 
@@ -96,7 +96,7 @@ export default function PainVsRelief() {
               <div className="pt-5 bg-gradient-to-br from-indigo-950/40 to-transparent -mx-6 -mb-6 sm:-mx-8 sm:-mb-8 p-6 sm:p-8 rounded-b-3xl">
                 <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>KothaShop সমাধান</span>
+                  <span>ShopPilot সমাধান</span>
                 </div>
                 <h3 className="text-base font-extrabold text-white">
                   {item.reliefTitle}

@@ -68,7 +68,7 @@ export async function processMerchantWhatsAppMessage(
     } else {
       return {
         isMerchant: false,
-        replyText: `👋 আসসালামু আলাইকুম!\nআমি *KothaShop AI Assistant*।\n\nআপনার এই নম্বরটি (*+${rawSenderPhone.replace(/\D/g, '')}*) KothaShop-এর কোনো শপ অ্যাকাউন্টের সাথে যুক্ত নেই।\n\n💡 আপনার শপের লাইভ অর্ডার, বিক্রি ও এআই আপডেট পেতে আপনার রেজিস্টার্ড মোবাইল নম্বর দিয়ে মেসেজ করুন অথবা ড্যাশবোর্ডের Settings থেকে নম্বর আপডেট করুন।`,
+        replyText: `👋 আসসালামু আলাইকুম!\nআমি *ShopPilot AI Assistant*।\n\nআপনার এই নম্বরটি (*+${rawSenderPhone.replace(/\D/g, '')}*) ShopPilot-এর কোনো শপ অ্যাকাউন্টের সাথে যুক্ত নেই।\n\n💡 আপনার শপের লাইভ অর্ডার, বিক্রি ও এআই আপডেট পেতে আপনার রেজিস্টার্ড মোবাইল নম্বর দিয়ে মেসেজ করুন অথবা ড্যাশবোর্ডের Settings থেকে নম্বর আপডেট করুন।`,
       };
     }
   }
@@ -217,7 +217,7 @@ export async function processMerchantWhatsAppMessage(
       text += `   • মেসেঞ্জার ও কমেন্ট: কাস্টমারদের প্রশ্নের উত্তর এআই দিয়ে দিচ্ছে\n\n`;
     } else {
       text += `📘 *ফেসবুক পেজ:* ⚠️ কোনো পেজ সংযুক্ত নেই\n`;
-      text += `   💡 KothaShop ড্যাশবোর্ডের *Channels* ট্যাব থেকে আপনার ফেসবুক পেজটি কানেক্ট করে নিন।\n\n`;
+      text += `   💡 ShopPilot ড্যাশবোর্ডের *Channels* ট্যাব থেকে আপনার ফেসবুক পেজটি কানেক্ট করে নিন।\n\n`;
     }
 
     if (waChannel) {

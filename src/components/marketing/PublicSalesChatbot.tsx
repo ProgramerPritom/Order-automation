@@ -29,7 +29,7 @@ export default function PublicSalesChatbot() {
     {
       id: 'greet',
       sender: 'assistant',
-      text: 'আসসালামু আলাইকুম! 👋 KothaShop.ai-তে আপনাকে স্বাগতম। আমাদের প্ল্যাটফর্মের ফিচার, প্যাকেজ বা কীভাবে এটি আপনার ফেসবুক পেজে ২৪/৭ সেলস বাড়াতে পারে — সে বিষয়ে কিছু জানতে চান? আমাকে প্রশ্ন করতে পারেন!',
+      text: 'আসসালামু আলাইকুম! 👋 ShopPilot.ai-তে আপনাকে স্বাগতম। আমাদের প্ল্যাটফর্মের ফিচার, প্যাকেজ বা কীভাবে এটি আপনার ফেসবুক পেজে ২৪/৭ সেলস বাড়াতে পারে — সে বিষয়ে কিছু জানতে চান? আমাকে প্রশ্ন করতে পারেন!',
       timestamp: new Date().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -55,7 +55,7 @@ export default function PublicSalesChatbot() {
 
   const quickPrompts = [
     '💰 প্যাকেজ ও প্রাইসিং কত?',
-    '⚡ KothaShop কীভাবে কাজ করে?',
+    '⚡ ShopPilot কীভাবে কাজ করে?',
     '🎙️ ভয়েস ও ছবি কীভাবে বোঝে?',
     '🛡️ ফেক অর্ডার কীভাবে ঠেকায়?',
     '🚀 ৭ দিন ফ্রি কীভাবে শুরু করব?',
@@ -122,7 +122,7 @@ export default function PublicSalesChatbot() {
               </div>
               <div>
                 <p className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>KothaShop AI অ্যাসিস্ট্যান্ট</span>
+                  <span>ShopPilot AI অ্যাসিস্ট্যান্ট</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 </p>
                 <p className="text-[10px] text-indigo-200">অনলাইনে ২৪/৭ সাহায্য করার জন্য প্রস্তুত</p>

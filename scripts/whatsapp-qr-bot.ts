@@ -19,7 +19,7 @@ import { isCommerceOrShopInquiry } from '../src/lib/whatsapp-baileys-service';
 const AUTH_DIR = path.join(process.cwd(), 'baileys_auth');
 
 console.log('\n======================================================');
-console.log('  🚀 KothaShop WhatsApp AI Merchant Assistant Runner');
+console.log('  🚀 ShopPilot WhatsApp AI Merchant Assistant Runner');
 console.log('======================================================\n');
 
 async function startWhatsAppBot() {
@@ -34,7 +34,7 @@ async function startWhatsAppBot() {
     printQRInTerminal: false,
     auth: state,
     generateHighQualityLinkPreview: true,
-    browser: ['KothaShop AI Assistant', 'Chrome', '1.0.0'],
+    browser: ['ShopPilot AI Assistant', 'Chrome', '1.0.0'],
   });
 
   // Save auth credentials whenever updated
@@ -81,7 +81,7 @@ async function startWhatsAppBot() {
         try {
           const ownerJid = `${botPhone}@s.whatsapp.net`;
           const welcomeText =
-            `🎉 *আসসালামু আলাইকুম! KothaShop WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
+            `🎉 *আসসালামু আলাইকুম! ShopPilot WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
             `আমি আপনার অনলাইন শপের *স্মার্ট এআই সেলস ও বিজনেস অ্যাসিস্ট্যান্ট*।\n\n` +
             `📌 *আপনি যেভাবে আমাকে ব্যবহার করতে পারবেন:*\n` +
             `১️⃣ *দোকানের হিসাব ও তথ্য জানতে:* এই চ্যাটেই আমাকে সরাসরি মেসেজ পাঠাতে পারেন (যেমন: *"আজকের বিক্রি কত?"*, *"অর্ডার কয়টি?"*, *"স্টক আপডেট"* বা *"মেনু"* লিখে পাঠান)।\n` +
@@ -177,7 +177,7 @@ async function startWhatsAppBot() {
           await new Promise((resolve) => setTimeout(resolve, 300));
           const formattedReply = result.replyText.startsWith('🤖') || result.replyText.startsWith('👋') || result.replyText.startsWith('🎉')
             ? result.replyText
-            : `🤖 *KothaShop AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
+            : `🤖 *ShopPilot AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
           try {
             await sock.sendMessage(targetJid, { text: formattedReply }, { quoted: msg });
             console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone} (${targetJid})`);

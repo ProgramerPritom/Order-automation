@@ -148,7 +148,7 @@ class WhatsAppBotService {
         printQRInTerminal: false,
         auth: state,
         generateHighQualityLinkPreview: true,
-        browser: ['KothaShop Web AI', 'Chrome', '1.0.0'],
+        browser: ['ShopPilot Web AI', 'Chrome', '1.0.0'],
       });
 
       this.sock = sock;
@@ -417,7 +417,7 @@ class WhatsAppBotService {
               // Format with a distinct AI Assistant header badge for visual clarity
               const formattedReply = result.replyText.startsWith('🤖') || result.replyText.startsWith('👋') || result.replyText.startsWith('🎉')
                 ? result.replyText
-                : `🤖 *KothaShop AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
+                : `🤖 *ShopPilot AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
 
               const ok = await sendSafe(formattedReply, msg);
               if (ok) {
@@ -590,7 +590,7 @@ class WhatsAppBotService {
     try {
       const ownerJid = `${this.phone}@s.whatsapp.net`;
       const welcomeText =
-        `🎉 *আসসালামু আলাইকুম! KothaShop WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
+        `🎉 *আসসালামু আলাইকুম! ShopPilot WhatsApp AI সফলভাবে সংযুক্ত হয়েছে!* 🚀\n\n` +
         `আমি আপনার অনলাইন শপের *স্মার্ট এআই সেলস ও বিজনেস অ্যাসিস্ট্যান্ট*।\n\n` +
         `📌 *আপনি যেভাবে আমাকে ব্যবহার করতে পারবেন:*\n` +
         `১️⃣ *দোকানের হিসাব ও তথ্য জানতে:* এই চ্যাটেই আমাকে সরাসরি মেসেজ পাঠাতে পারেন, যেমন:\n` +

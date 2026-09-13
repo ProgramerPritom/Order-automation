@@ -15,7 +15,7 @@ export default function Footer() {
                 <Bot className="w-5 h-5" />
               </div>
               <span className="font-black text-xl text-white tracking-tight">
-                KothaShop<span className="text-indigo-400">.ai</span>
+                ShopPilot<span className="text-indigo-400">.ai</span>
               </span>
             </div>
             <p className="text-slate-400 max-w-sm leading-relaxed text-xs">
@@ -48,7 +48,7 @@ export default function Footer() {
         </div>
 
         <div className="pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© {new Date().getFullYear()} KothaShop.ai — All rights reserved.</p>
+          <p>© {new Date().getFullYear()} ShopPilot.ai — All rights reserved.</p>
           <p className="flex items-center gap-1 text-slate-500">
             <span>Crafted for Bangladeshi E-Commerce with</span>
             <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />

@@ -244,7 +244,7 @@ export default function DashboardLayout({
               {!isCollapsed && (
                 <div className="overflow-hidden">
                   <span className="font-extrabold text-lg text-white tracking-tight">
-                    KothaShop<span className="text-indigo-400">.ai</span>
+                    ShopPilot<span className="text-indigo-400">.ai</span>
                   </span>
                   <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">
                     {isSuperAdmin ? 'Master Admin' : 'Client Dashboard'}
@@ -389,7 +389,7 @@ export default function DashboardLayout({
           <div className="relative w-72 max-w-full bg-slate-900 text-white flex flex-col z-10 p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
               <span className="font-extrabold text-base text-white">
-                KothaShop<span className="text-indigo-400">.ai</span>
+                ShopPilot<span className="text-indigo-400">.ai</span>
               </span>
               <button
                 onClick={() => setSidebarOpen(false)}

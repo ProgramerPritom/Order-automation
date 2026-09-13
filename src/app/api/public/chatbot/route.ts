@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/public/chatbot - Public Marketing & Sales AI Chatbot
- * Answers prospective customer queries about KothaShop.ai pricing, features, and onboarding
+ * Answers prospective customer queries about ShopPilot.ai pricing, features, and onboarding
  */
 export async function POST(req: NextRequest) {
   try {
@@ -17,10 +17,10 @@ export async function POST(req: NextRequest) {
     }
 
     const systemPrompt = `
-তুমি হলে KothaShop.ai (কথ্যাশপ এআই) প্ল্যাটফর্মের অফিশিয়াল অনলাইন সেলস ও হেল্প এআই অ্যাসিস্ট্যান্ট।
+তুমি হলে ShopPilot.ai (শপপাইলট এআই) প্ল্যাটফর্মের অফিশিয়াল অনলাইন সেলস ও হেল্প এআই অ্যাসিস্ট্যান্ট।
 তোমার দায়িত্ব হলো ওয়েবসাইটে আগত ভিজিটর ও সম্ভাব্য মার্চেন্টদের প্ল্যাটফর্মের সুবিধা, প্যাকেজ ও ফিচার সম্পর্কে আকর্ষণীয়, প্রফেশনাল ও সহজ বাংলায় বুঝিয়ে বলা।
 
-[KothaShop.ai সম্পর্কে মূল তথ্য]:
+[ShopPilot.ai সম্পর্কে মূল তথ্য]:
 ১. প্ল্যাটফর্ম কী:
    - এটি বাংলাদেশের এফ-কমার্স (Facebook Messenger, Instagram DM ও WhatsApp) ভিত্তিক অনলাইন শপগুলোর জন্য ২৪/৭ এআই সেলস এক্সিকিউটিভ ও অর্ডার ইঞ্জিন।
    - কোনো জটিল ওয়েবসাইট ছাড়াই শুধুমাত্র ফেসবুক পেইজ বা হোয়াটসঅ্যাপ দিয়ে ব্যবসা চালানো যায়।

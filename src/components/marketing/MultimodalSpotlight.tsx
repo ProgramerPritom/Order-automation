@@ -32,7 +32,7 @@ export default function MultimodalSpotlight() {
             কাস্টমারের ছবি ও অডিও ভয়েস নোট — সবই বোঝে এআই
           </h2>
           <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-            বাংলাদেশের ৬০% ফেসবুক ক্রেতা মেসেঞ্জারে টাইপ না করে ভয়েস নোট পাঠায় কিংবা পণ্যের ছবি ইনবক্সে দেয়। KothaShop.ai মানুষের মতো শুনে ও দেখে সঠিক জবাব দেয় এবং অর্ডার নিশ্চিত করে।
+            বাংলাদেশের ৬০% ফেসবুক ক্রেতা মেসেঞ্জারে টাইপ না করে ভয়েস নোট পাঠায় কিংবা পণ্যের ছবি ইনবক্সে দেয়। ShopPilot.ai মানুষের মতো শুনে ও দেখে সঠিক জবাব দেয় এবং অর্ডার নিশ্চিত করে।
           </p>
         </div>
 
@@ -109,7 +109,7 @@ export default function MultimodalSpotlight() {
                     <Bot className="w-4 h-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-900">KothaShop AI Agent</p>
+                    <p className="text-xs font-bold text-slate-900">ShopPilot AI Agent</p>
                     <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       <span>Active • Facebook Messenger</span>
@@ -225,7 +225,7 @@ export default function MultimodalSpotlight() {
 
             <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
               <span>ফেসবুক মেসেঞ্জার, ইনস্টাগ্রাম ও হোয়াটসঅ্যাপে স্বয়ংক্রিয়ভাবে সক্রিয়</span>
-              <span className="font-bold text-indigo-600">KothaShop Vision Core</span>
+              <span className="font-bold text-indigo-600">ShopPilot Vision Core</span>
             </div>
           </div>
 

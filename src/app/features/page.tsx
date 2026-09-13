@@ -50,7 +50,7 @@ export default function FeaturesPage() {
       icon: <TrendingUp className="w-6 h-6 text-emerald-600" />,
       badge: 'বাস্তব লাভ',
       title: 'ডেলিভারড অর্ডারে আসল নিট লাভের হিসাব',
-      desc: 'শুধু মোট বিক্রির ফিগার দেখে লাভ বোঝা যায় না। KothaShop প্রতিটি সফল ডেলিভারির পর পণ্যের কেনা দাম ও কুরিয়ার ফি বাদ দিয়ে আপনার পকেটে আসল লাভ কত থাকল তা পরিষ্কার দেখায়।',
+      desc: 'শুধু মোট বিক্রির ফিগার দেখে লাভ বোঝা যায় না। ShopPilot প্রতিটি সফল ডেলিভারির পর পণ্যের কেনা দাম ও কুরিয়ার ফি বাদ দিয়ে আপনার পকেটে আসল লাভ কত থাকল তা পরিষ্কার দেখায়।',
       benefit: 'রিয়েলটাইম ফাইন্যান্সিয়াল স্বচ্ছতা',
     },
     {
@@ -121,7 +121,7 @@ export default function FeaturesPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold mb-5">
             <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>KothaShop.ai পূর্ণাঙ্গ ফিচার তালিকা</span>
+            <span>ShopPilot.ai পূর্ণাঙ্গ ফিচার তালিকা</span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
             একটা এআই সেলস এজেন্ট, <br className="hidden sm:inline" />
@@ -130,7 +130,7 @@ export default function FeaturesPage() {
             </span>
           </h1>
           <p className="mt-4 text-sm sm:text-base text-slate-600 max-w-3xl mx-auto leading-relaxed">
-            KothaShop শুধু সাধারণ রোবট নয় — মেসেঞ্জারে মানুষের মতো কথা বলে, ছবি ও অডিও বোঝে, নিজে অর্ডার নেয়, কুরিয়ার ফ্রড চেক করে এবং প্রতিটি অর্ডারের লাভ-লোকসান হিসাব রাখে।
+            ShopPilot শুধু সাধারণ রোবট নয় — মেসেঞ্জারে মানুষের মতো কথা বলে, ছবি ও অডিও বোঝে, নিজে অর্ডার নেয়, কুরিয়ার ফ্রড চেক করে এবং প্রতিটি অর্ডারের লাভ-লোকসান হিসাব রাখে।
           </p>
         </div>
 

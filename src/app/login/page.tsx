@@ -72,7 +72,7 @@ export default function LoginPage() {
             <Bot className="w-5 h-5" />
           </div>
           <span className="font-extrabold text-2xl text-slate-900 tracking-tight">
-            KothaShop<span className="text-indigo-600">.ai</span>
+            ShopPilot<span className="text-indigo-600">.ai</span>
           </span>
         </Link>
         <h2 className="mt-6 text-2xl sm:text-3xl font-black text-slate-900">

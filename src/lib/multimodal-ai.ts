@@ -1,5 +1,5 @@
 /**
- * Multimodal AI Engine for KothaShop.ai
+ * Multimodal AI Engine for ShopPilot.ai
  * Handles Facebook Messenger Image Attachments & Audio Voice Notes
  */
 

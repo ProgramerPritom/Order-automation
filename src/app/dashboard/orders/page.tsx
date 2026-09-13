@@ -969,7 +969,7 @@ export default function OrdersPage() {
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b-2 border-indigo-600 mb-6">
               <div>
-                <h2 className="text-2xl font-black text-indigo-600 tracking-tight">KothaShop.ai</h2>
+                <h2 className="text-2xl font-black text-indigo-600 tracking-tight">ShopPilot.ai</h2>
                 <p className="text-[11px] font-bold text-slate-600 mt-0.5">
                   {printingOrder.channel_name || 'অফিসিয়াল মার্চেন্ট স্টোর'} • চালান / ক্যাশ মেমো
                 </p>

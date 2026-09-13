@@ -26,7 +26,7 @@ export default function Navbar() {
             <div>
               <div className="flex items-center space-x-1.5">
                 <span className="font-extrabold text-xl tracking-tight text-slate-900">
-                  KothaShop<span className="text-indigo-600">.ai</span>
+                  ShopPilot<span className="text-indigo-600">.ai</span>
                 </span>
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 tracking-wide uppercase">
                   SaaS 2.0

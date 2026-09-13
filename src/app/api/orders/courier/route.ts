@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
               recipient_phone: order.customer_phone,
               recipient_address: order.delivery_address,
               cod_amount: parseFloat(order.total_amount),
-              note: order.notes || 'Order dispatched via KothaShop AI',
+              note: order.notes || 'Order dispatched via ShopPilot AI',
             }),
           });
           const sfData = await sfRes.json();

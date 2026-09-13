@@ -1,7 +1,7 @@
-# 📘 KothaShop.ai — Facebook Integration & Multi-Tenant Setup Progress
+# 📘 ShopPilot.ai — Facebook Integration & Multi-Tenant Setup Progress
 
-**তারিখ ও সময়:** ৬ সেপ্টেম্বর, ২০২৬ | ১৮:০১ (BST)  
-**প্রোজেক্ট:** KothaShop.ai (Social Commerce AI Automation Platform)  
+**তারিখ:** March 2026  
+**প্রোজেক্ট:** ShopPilot.ai (Social Commerce AI Automation Platform)  
 **উদ্দেশ্য:** নন-টেকনিক্যাল ক্লায়েন্টদের জন্য ১-ক্লিকে ফেসবুক পেজ কানেকশন এবং সেন্ট্রাল মেটা মাস্টার আর্কিটেকচার বাস্তবায়ন।
 
 ---
@@ -9,7 +9,7 @@
 ## 🚀 ১. আজ পর্যন্ত যা যা সম্পন্ন হয়েছে (Completed Milestones)
 
 ### ক. মেটা মাস্টার অ্যাপ তৈরি (Master Meta App)
-* **অ্যাপের নাম:** `Kotha Shop AI automation`
+* **অ্যাপের নাম:** `ShopPilot AI Automation`
 * **অ্যাপের ধরন (App Type):** `Business` (মেসেঞ্জার, ইনস্টাগ্রাম, হোয়াটসঅ্যাপ ও মার্কেটিং এপিআই একসাথে পাওয়ার জন্য)।
 * **Master App ID:** `1088885870322128` (আমাদের `.env` ফাইলে সংরক্ষিত)।
 * **অ্যাপের মোড:** `Development` (ডেভেলপমেন্ট ও টেস্টিং মোডে আছে)।

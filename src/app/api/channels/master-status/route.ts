@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       masterApp: {
         appId,
-        appName: 'Kotha Shop AI automation',
+        appName: 'ShopPilot AI Automation',
         appType: 'Meta Business App (All-in-One: Messenger, IG, WhatsApp)',
         mode: 'Development Mode (Active & Ready)',
         webhookUrl: `${appUrl}/api/webhooks/meta`,

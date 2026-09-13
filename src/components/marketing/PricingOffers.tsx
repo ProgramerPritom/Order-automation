@@ -69,7 +69,7 @@ export default function PricingOffers() {
           <Tag className="w-4 h-4 text-rose-600 shrink-0" />
           <span>🔥 সীমিত সময়ের অফার: প্রথম ৫০টি শপের জন্য আজীবন ৩০% ছাড়! কোড:</span>
           <span className="font-mono px-2 py-0.5 rounded bg-white font-black text-rose-600 border border-rose-200">
-            KOTHA30
+            SHOPPILOT30
           </span>
         </div>
 

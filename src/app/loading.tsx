@@ -22,7 +22,7 @@ export default function GlobalLoading() {
 
         {/* Brand & Loading text */}
         <h2 className="mt-6 text-xl font-extrabold text-white tracking-tight">
-          KothaShop<span className="text-indigo-400">.ai</span>
+          ShopPilot<span className="text-indigo-400">.ai</span>
         </h2>
         <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 font-medium">
           <span>লোড হচ্ছে</span>
