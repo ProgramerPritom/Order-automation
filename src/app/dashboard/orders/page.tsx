@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import PaginationControl from '@/components/ui/PaginationControl';
 import { getSessionToken } from '@/lib/session';
+import { toast } from 'sonner';
+import { useConfirm } from '@/components/providers/ConfirmProvider';
 import {
   ShoppingBag,
   Filter,
@@ -66,6 +68,7 @@ interface Order {
 }
 
 export default function OrdersPage() {
+  const { confirm } = useConfirm();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -185,26 +188,41 @@ export default function OrdersPage() {
         },
         body: JSON.stringify({ orderId, status: newStatus }),
       });
+      toast.success(`অর্ডার স্ট্যাটাস '${getStatusLabel(newStatus)}' এ পরিবর্তিত হয়েছে`);
       showNotice(`অর্ডার স্ট্যাটাস '${getStatusLabel(newStatus)}' এ পরিবর্তিত হয়েছে`);
     } catch (err) {
       console.error('Failed to update status', err);
+      toast.error('স্ট্যাটাস আপডেট করতে সমস্যা হয়েছে');
     }
   };
 
   // Delete Order
   const handleDeleteOrder = async (orderId: string) => {
-    if (!confirm('আপনি কি নিশ্চিত যে এই অর্ডারটি ডিলিট করতে চান?')) return;
+    const confirmed = await confirm({
+      title: 'অর্ডার ডিলিট',
+      message: 'আপনি কি নিশ্চিত যে এই অর্ডারটি ডিলিট করতে চান?',
+      confirmText: 'হ্যাঁ, ডিলিট করুন',
+      cancelText: 'বাতিল',
+      type: 'danger',
+    });
+    if (!confirmed) return;
 
     try {
       const token = localStorage.getItem('accessToken');
-      await fetch(`/api/orders?id=${orderId}`, {
+      const res = await fetch(`/api/orders?id=${orderId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      setOrders((prev) => prev.filter((o) => o.id !== orderId));
-      showNotice('অর্ডারটি সফলভাবে ডিলিট করা হয়েছে');
+      if (res.ok) {
+        setOrders((prev) => prev.filter((o) => o.id !== orderId));
+        toast.success('অর্ডারটি সফলভাবে ডিলিট করা হয়েছে');
+        showNotice('অর্ডারটি সফলভাবে ডিলিট করা হয়েছে');
+      } else {
+        toast.error('অর্ডার ডিলিট করা যায়নি');
+      }
     } catch (err) {
       console.error(err);
+      toast.error('অর্ডার ডিলিট করতে সমস্যা হয়েছে');
     }
   };
 
@@ -213,6 +231,7 @@ export default function OrdersPage() {
     try {
       const token = getSessionToken();
       showNotice(`🚚 ${order.customer_name}-এর পার্সেলটি স্টেডফাস্ট কুরিয়ারে বুকিং করা হচ্ছে...`);
+      toast.info(`🚚 ${order.customer_name}-এর পার্সেলটি স্টেডফাস্ট কুরিয়ারে বুকিং করা হচ্ছে...`);
       
       const res = await fetch('/api/orders/courier', {
         method: 'POST',
@@ -240,8 +259,10 @@ export default function OrdersPage() {
         )
       );
 
+      toast.success(`🎉 ${data.message}`);
       showNotice(`🎉 ${data.message}`);
     } catch (err: any) {
+      toast.error(`❌ কুরিয়ার বুকিং ব্যর্থ: ${err.message}`);
       showNotice(`❌ কুরিয়ার বুকিং ব্যর্থ: ${err.message}`);
     }
   };
@@ -269,6 +290,7 @@ export default function OrdersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update order');
 
+      toast.success('অর্ডারের তথ্য সফলভাবে সেভ হয়েছে!');
       setSaveSuccess('অর্ডারের তথ্য সফলভাবে সেভ হয়েছে!');
       fetchOrders();
       setTimeout(() => {
@@ -276,7 +298,7 @@ export default function OrdersPage() {
         setEditingOrder(null);
       }, 1000);
     } catch (err: any) {
-      alert(err.message || 'Error saving order');
+      toast.error(err.message || 'Error saving order');
     } finally {
       setIsSaving(false);
     }

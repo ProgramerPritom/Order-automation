@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   ShieldCheck,
   Users,
@@ -136,11 +137,12 @@ export default function SuperAdminPage() {
       if (!res.ok) throw new Error(data.error || 'Action failed');
 
       setActionMsg(data.message || 'অ্যাকশন সফল হয়েছে!');
+      toast.success(data.message || 'অ্যাকশন সফল হয়েছে!');
       setTimeout(() => setActionMsg(null), 4000);
       const currentCursor = cursorStack[currentPage - 1] ?? null;
       fetchAdminData(currentCursor);
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || 'অ্যাকশন সম্পন্ন করা যায়নি');
     }
   };
 

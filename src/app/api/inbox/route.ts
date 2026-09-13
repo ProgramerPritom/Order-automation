@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { saasRedis } from '@/lib/redis';
+import { getWhatsAppService } from '@/lib/whatsapp-baileys-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -171,15 +172,20 @@ export async function POST(req: NextRequest) {
     cachedHistory.push({ sender_type: 'human_agent', content: messageText.trim() });
     await saasRedis.set(historyCacheKey, cachedHistory.slice(-8), { ex: 86400 });
 
-    // 4. Dispatch to Meta Messenger / Instagram / WhatsApp via Graph API
-    const accessToken = conv.access_token || process.env.META_PAGE_ACCESS_TOKEN;
-    if (accessToken && accessToken !== 'mock_token') {
+    // 4. Dispatch to WhatsApp (Baileys Web or Cloud API) / Meta Messenger / Instagram
+    if (conv.channel_platform === 'whatsapp') {
       try {
-        if (conv.channel_platform === 'whatsapp') {
-          // WhatsApp Cloud API dispatch
+        const wa = getWhatsAppService();
+        const rawTarget = (conv.customer_phone || conv.customer_identifier || '').replace(/\D/g, '');
+        if (wa && (wa.status === 'connected' || (wa as any).sock) && rawTarget) {
+          const targetJid = `${rawTarget}@s.whatsapp.net`;
+          await (wa as any).sock?.sendMessage(targetJid, { text: messageText.trim() });
+          console.log(`📤 [Inbox Live Reply] Dispatched via Baileys WhatsApp to: +${rawTarget}`);
+        } else {
+          // Fallback to WhatsApp Cloud API if access token configured
+          const accessToken = conv.access_token || process.env.META_PAGE_ACCESS_TOKEN;
           const phoneNumberId = conv.channel_identifier || process.env.WHATSAPP_PHONE_NUMBER_ID;
-          const targetNumber = conv.customer_phone || conv.customer_identifier;
-          if (phoneNumberId && targetNumber) {
+          if (accessToken && accessToken !== 'mock_token' && phoneNumberId && rawTarget) {
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: 'POST',
               headers: {
@@ -189,14 +195,21 @@ export async function POST(req: NextRequest) {
               body: JSON.stringify({
                 messaging_product: 'whatsapp',
                 recipient_type: 'individual',
-                to: targetNumber.replace(/[^0-9]/g, ''),
+                to: rawTarget,
                 type: 'text',
                 text: { body: messageText.trim() },
               }),
             });
           }
-        } else {
-          // Facebook Messenger & Instagram Direct via /me/messages
+        }
+      } catch (err: any) {
+        console.warn('Live WhatsApp inbox message dispatch warning:', err.message);
+      }
+    } else {
+      // Facebook Messenger & Instagram Direct via /me/messages
+      const accessToken = conv.access_token || process.env.META_PAGE_ACCESS_TOKEN;
+      if (accessToken && accessToken !== 'mock_token') {
+        try {
           await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${accessToken}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -205,9 +218,9 @@ export async function POST(req: NextRequest) {
               message: { text: messageText.trim() },
             }),
           });
+        } catch (err: any) {
+          console.warn('Live inbox message dispatch warning:', err.message);
         }
-      } catch (err: any) {
-        console.warn('Live inbox message dispatch warning:', err.message);
       }
     }
 

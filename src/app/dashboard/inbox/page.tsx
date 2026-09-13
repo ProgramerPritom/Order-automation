@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PaginationControl from '@/components/ui/PaginationControl';
 import { getSessionToken } from '@/lib/session';
+import { toast } from 'sonner';
+import { useConfirm } from '@/components/providers/ConfirmProvider';
 import {
   MessageSquare,
   Bot,
@@ -37,6 +39,7 @@ interface Conversation {
 }
 
 export default function LiveInboxPage() {
+  const { confirm } = useConfirm();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -155,15 +158,29 @@ export default function LiveInboxPage() {
           action: newStatus ? 'takeover' : 'release',
         }),
       });
+      toast.info(
+        newStatus
+          ? 'হিউম্যান টেকওভার চালু: এআই এখন স্বয়ংক্রিয় উত্তর দেবে না'
+          : 'এআই অটোমেশন পুনরায় চালু হয়েছে'
+      );
     } catch (e) {
       console.error(e);
+      toast.error('হিউম্যান টেকওভার পরিবর্তন করতে সমস্যা হয়েছে');
     } finally {
       setToggling(false);
     }
   };
 
   const handleDeleteConversation = async (convId: string) => {
-    if (!confirm('আপনি কি নিশ্চিত যে এই চ্যাটটি মুছে ফেলতে চান?')) return;
+    const confirmed = await confirm({
+      title: 'চ্যাট মুছে ফেলুন',
+      message: 'আপনি কি নিশ্চিত যে এই কথোপকথনটি মুছে ফেলতে চান? সমস্ত মেসেজ হিস্টোরি মুছে যাবে।',
+      confirmText: 'হ্যাঁ, মুছে ফেলুন',
+      cancelText: 'বাতিল',
+      type: 'danger',
+    });
+    if (!confirmed) return;
+
     setDeleting(true);
     try {
       const token = getSessionToken();
@@ -176,9 +193,13 @@ export default function LiveInboxPage() {
         if (selectedConv?.id === convId) {
           setSelectedConv(null);
         }
+        toast.success('কথোপকথনটি সফলভাবে মুছে ফেলা হয়েছে');
+      } else {
+        toast.error('কথোপকথন ডিলিট করতে সমস্যা হয়েছে');
       }
     } catch (e) {
       console.error('Delete conversation error:', e);
+      toast.error('কথোপকথন ডিলিট করতে সমস্যা হয়েছে');
     } finally {
       setDeleting(false);
     }
@@ -214,7 +235,7 @@ export default function LiveInboxPage() {
 
     try {
       const token = getSessionToken();
-      await fetch('/api/inbox', {
+      const res = await fetch('/api/inbox', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -225,8 +246,12 @@ export default function LiveInboxPage() {
           messageText: textToSend,
         }),
       });
+      if (!res.ok) {
+        toast.error('মেসেজ পাঠাতে সমস্যা হয়েছে');
+      }
     } catch (err) {
       console.error('Failed to send live message:', err);
+      toast.error('মেসেজ পাঠাতে সমস্যা হয়েছে');
     } finally {
       setSending(false);
     }

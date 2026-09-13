@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import PaginationControl from '@/components/ui/PaginationControl';
 import { getSessionToken } from '@/lib/session';
+import { toast } from 'sonner';
+import { useConfirm } from '@/components/providers/ConfirmProvider';
 import {
   Package,
   Plus,
@@ -29,6 +31,7 @@ interface Product {
 }
 
 export default function ProductsPage() {
+  const { confirm } = useConfirm();
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -122,18 +125,28 @@ export default function ProductsPage() {
         setModalOpen(false);
         setTitle('');
         setDescription('');
+        toast.success('নতুন পণ্য সফলভাবে যুক্ত হয়েছে!');
+      } else {
+        toast.error(data.error || 'পণ্য যুক্ত করতে ব্যর্থ হয়েছে।');
       }
     } catch (e) {
       console.error(e);
+      toast.error('পণ্য যুক্ত করতে সমস্যা হয়েছে।');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
-    if (!confirm('আপনি কি নিশ্চিত যে এই পণ্যটি মুছে ফেলতে চান? এটি এআই ক্যাটালগ ও ক্যাশ থেকেও মুছে যাবে।')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'পণ্য মুছে ফেলুন',
+      message: 'আপনি কি নিশ্চিত যে এই পণ্যটি মুছে ফেলতে চান? এটি এআই ক্যাটালগ ও ক্যাশ থেকেও মুছে যাবে।',
+      confirmText: 'হ্যাঁ, মুছে ফেলুন',
+      cancelText: 'বাতিল',
+      type: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const token = localStorage.getItem('accessToken');
       const res = await fetch(`/api/products?id=${id}`, {
@@ -142,9 +155,13 @@ export default function ProductsPage() {
       });
       if (res.ok) {
         setProducts((prev) => prev.filter((p) => p.id !== id));
+        toast.success('পণ্যটি সফলভাবে মুছে ফেলা হয়েছে।');
+      } else {
+        toast.error('পণ্যটি মুছতে ব্যর্থ হয়েছে।');
       }
     } catch (e) {
       console.error('Delete product error:', e);
+      toast.error('পণ্যটি মুছতে সমস্যা হয়েছে।');
     }
   };
 

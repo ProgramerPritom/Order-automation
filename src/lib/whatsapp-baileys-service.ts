@@ -25,6 +25,53 @@ export interface WhatsAppStatusResponse {
   uptime?: number;
 }
 
+/**
+ * Smart Commerce & Privacy Intent Filter
+ * Protects personal/family/friends chats on private WhatsApp accounts.
+ * The AI Sales Engine ONLY replies if the message is genuinely about shopping,
+ * Facebook ads/posts, products, pricing, orders, or delivery.
+ */
+export function isCommerceOrShopInquiry(text: string, hasPriorConversation: boolean): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase().trim();
+
+  // If this customer already has an active ongoing conversation in database, continue dialogue
+  if (hasPriorConversation) {
+    return true;
+  }
+
+  // 1. Facebook CTA / Lead / Ad Referral patterns
+  const fbPatterns = [
+    'facebook', 'ফেসবুক', 'fb', 'saw this on', 'interested in', 'page', 'পেজ',
+    'post', 'পোস্ট', 'ad', 'বিজ্ঞাপন', 'saw this post'
+  ];
+  if (fbPatterns.some((pattern) => lower.includes(pattern))) {
+    return true;
+  }
+
+  // 2. Clear Commerce, Shopping, Pricing, Product, and Order Keywords
+  const commerceKeywords = [
+    // Pricing & Cost
+    'দাম', 'dam', 'rate', 'price', 'cost', 'koto', 'কত', 'tk', 'টাকা', 'taka',
+    // Order & Purchasing
+    'order', 'অর্ডার', 'অডার', 'কিনতে', 'kinte', 'নিতে', 'nite', 'buy', 'purchase',
+    'booking', 'বুকিং', 'confirm', 'কনফার্ম', 'চাই', 'lagbe', 'লাগবে',
+    // Product & Stock Details
+    'product', 'প্রোডাক্ট', 'পণ্য', 'item', 'details', 'বিস্তারিত', 'ছবি', 'pic',
+    'photo', 'picture', 'stock', 'স্টক', 'available', 'পাওয়া যাবে', 'pawa jabe',
+    'size', 'সাইজ', 'colour', 'color', 'কালার',
+    // Delivery & Payment
+    'delivery', 'ডেলিভারি', 'charge', 'চার্জ', 'courier', 'কুরিয়ার', 'steadfast',
+    'redx', 'pathao', 'ক্যাশ অন', 'cash on', 'cod', 'bkash', 'বিকাশ', 'nagad', 'নগদ', 'payment', 'পেমেন্ট',
+    // Catalog & Store
+    'shop', 'শপ', 'দোকান', 'catalogue', 'ক্যাটালগ', 'মেনু', 'menu', 'discount', 'অফার', 'offer',
+    // Common garments & merchandise
+    'shirt', 'শার্ট', 'panjabi', 'পাঞ্জাবি', 'saree', 'শাড়ি', 'dress', 'ঘড়ি', 'watch', 'shoe', 'জুতা', 't-shirt'
+  ];
+
+  return commerceKeywords.some((kw) => lower.includes(kw));
+}
+
 class WhatsAppBotService {
   private sock: WASocket | null = null;
   public status: WhatsAppBotStatus = 'idle';
@@ -39,6 +86,7 @@ class WhatsAppBotService {
   private initStartTime: number = 0;
   private sentBotMessageIds = new Set<string>();
   private hasSentWelcomeForSession: boolean = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     // Check if auth folder exists with existing credentials
@@ -53,8 +101,25 @@ class WhatsAppBotService {
       this.tenantId = tenantId;
     }
 
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.sock && this.status === 'connected') {
       return this.getStatus();
+    }
+
+    // Explicitly clean up and close previous socket to prevent conflict 440 loops
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.ev.removeAllListeners('messages.upsert');
+        this.sock.end(undefined);
+      } catch (_) {}
+      this.sock = null;
+      await new Promise((r) => setTimeout(r, 600));
     }
 
     // Allow re-attempt if initialization took more than 8 seconds
@@ -118,8 +183,17 @@ class WhatsAppBotService {
         }
 
         if (connection === 'close') {
+          // Ignore events from orphaned / previous sockets
+          if (this.sock !== sock) {
+            return;
+          }
+
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          // Crucial: 440 means connectionReplaced by another client. DO NOT auto-reconnect to avoid infinite loop!
+          const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+          const shouldReconnect = !isReplaced && !isLoggedOut;
+
           console.log(`⚠️ [Baileys Web] Connection closed (Code: ${statusCode}). Reconnect: ${shouldReconnect}`);
 
           this.qrRaw = null;
@@ -128,12 +202,13 @@ class WhatsAppBotService {
 
           if (shouldReconnect) {
             this.status = 'starting';
-            setTimeout(() => {
+            if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = setTimeout(() => {
               this.isInitializing = false;
               this.start();
-            }, 3000);
+            }, 3500);
           } else {
-            console.log('[Baileys Web] Disconnected permanently / logged out.');
+            console.log(`[Baileys Web] Connection closed permanently (Code: ${statusCode}, replaced: ${isReplaced}, loggedOut: ${isLoggedOut}).`);
             const disconnectedPhone = this.phone;
             const currentTenant = this.tenantId;
 
@@ -143,27 +218,26 @@ class WhatsAppBotService {
             this.isInitializing = false;
             this.hasSentWelcomeForSession = false;
 
-            // Clean auth folder if logged out
-            try {
-              if (fs.existsSync(AUTH_DIR)) {
-                fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-              }
-            } catch (_) {}
-
-            // Clean up WhatsApp channel from DB
-            try {
-              if (disconnectedPhone) {
-                query(
-                  `DELETE FROM channels WHERE platform = 'whatsapp' AND (channel_identifier = $1 OR channel_identifier = $2);`,
-                  [disconnectedPhone, `+${disconnectedPhone}`]
-                ).catch(() => {});
-              } else if (currentTenant) {
-                query(
-                  `DELETE FROM channels WHERE platform = 'whatsapp' AND tenant_id = $1;`,
-                  [currentTenant]
-                ).catch(() => {});
-              }
-            } catch (_) {}
+            if (isLoggedOut) {
+              try {
+                if (fs.existsSync(AUTH_DIR)) {
+                  fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                }
+              } catch (_) {}
+              try {
+                if (disconnectedPhone) {
+                  query(
+                    `DELETE FROM channels WHERE platform = 'whatsapp' AND (channel_identifier = $1 OR channel_identifier = $2);`,
+                    [disconnectedPhone, `+${disconnectedPhone}`]
+                  ).catch(() => {});
+                } else if (currentTenant) {
+                  query(
+                    `DELETE FROM channels WHERE platform = 'whatsapp' AND tenant_id = $1;`,
+                    [currentTenant]
+                  ).catch(() => {});
+                }
+              } catch (_) {}
+            }
           }
         } else if (connection === 'open') {
           this.status = 'connected';
@@ -247,13 +321,52 @@ class WhatsAppBotService {
           const displayPhone = cleanMyPhone || cleanRemotePhone || 'unknown';
           console.log(`\n📩 [WA Received] From: +${displayPhone} | isSelfChat: ${isSelfChat} | fromMe: ${msg.key.fromMe} | Text: "${text}"`);
 
-          // For self-chat, ALWAYS reply to owner's WhatsApp number so it shows in "Message yourself"
-          const targetJid = isSelfChat && cleanMyPhone
-            ? `${cleanMyPhone}@s.whatsapp.net`
+          // For self-chat, reply to owner's number or remoteJid
+          const targetJid = isSelfChat
+            ? (remoteJid.includes('@s.whatsapp.net') ? remoteJid : (cleanMyPhone ? `${cleanMyPhone}@s.whatsapp.net` : remoteJid))
             : (remoteJid.includes('@s.whatsapp.net') && cleanRemotePhone ? `${cleanRemotePhone}@s.whatsapp.net` : remoteJid);
 
+          // Safe message delivery with fallback and optional quoted message
+          const sendSafe = async (textToSend: string, quote?: any): Promise<boolean> => {
+            const activeSock = this.sock || sock;
+            if (!activeSock) return false;
+
+            const sendOptions: any = {};
+            if (quote) {
+              sendOptions.quoted = quote;
+            }
+
+            try {
+              const res = await activeSock.sendMessage(targetJid, { text: textToSend }, sendOptions);
+              if (res?.key?.id) {
+                this.sentBotMessageIds.add(res.key.id);
+                if (this.sentBotMessageIds.size > 2000) this.sentBotMessageIds.clear();
+                return true;
+              }
+            } catch (primaryErr: any) {
+              console.warn(`[WA Reply Warning] Direct send to ${targetJid} failed:`, primaryErr?.message || primaryErr);
+            }
+
+            // Fallback for self chat: if targetJid failed and remoteJid is different (e.g. LID vs phone)
+            if (isSelfChat && remoteJid && remoteJid !== targetJid) {
+              try {
+                const resFallback = await activeSock.sendMessage(remoteJid, { text: textToSend }, sendOptions);
+                if (resFallback?.key?.id) {
+                  this.sentBotMessageIds.add(resFallback.key.id);
+                  return true;
+                }
+              } catch (fallbackErr: any) {
+                console.warn(`[WA Reply Warning] Fallback send to ${remoteJid} failed:`, fallbackErr?.message || fallbackErr);
+              }
+            }
+            return false;
+          };
+
           try {
-            await sock.sendPresenceUpdate('composing', targetJid);
+            // NEVER send composing presence to yourself (WhatsApp drops connection on self chat presence!)
+            if (!isSelfChat) {
+              sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
+            }
 
             // 1. Identify which tenant and channel this WhatsApp bot belongs to
             let targetTenantId = this.tenantId;
@@ -299,50 +412,106 @@ class WhatsAppBotService {
               // SENDER IS THE SHOP OWNER -> Run Business Copilot
               console.log(`👑 [WhatsApp Copilot] Owner query from +${displayPhone}: "${text}"`);
               const result = await processMerchantWhatsAppMessage(displayPhone, text);
-              await new Promise((resolve) => setTimeout(resolve, 300));
-              const sent = await sock.sendMessage(targetJid, { text: result.replyText });
-              if (sent?.key?.id) {
-                this.sentBotMessageIds.add(sent.key.id);
-                if (this.sentBotMessageIds.size > 2000) {
-                  this.sentBotMessageIds.clear();
-                }
+              await new Promise((resolve) => setTimeout(resolve, 200));
+
+              // Format with a distinct AI Assistant header badge for visual clarity
+              const formattedReply = result.replyText.startsWith('🤖') || result.replyText.startsWith('👋') || result.replyText.startsWith('🎉')
+                ? result.replyText
+                : `🤖 *KothaShop AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
+
+              const ok = await sendSafe(formattedReply, msg);
+              if (ok) {
+                console.log(`📤 [WA Owner Reply Sent] To: +${displayPhone} (${targetJid})`);
+              } else {
+                console.error(`❌ [WA Owner Reply Failed] Could not deliver to +${displayPhone}`);
               }
-              console.log(`📤 [WA Owner Reply Sent] To: +${displayPhone} (${targetJid})`);
-            } else {
-              // SENDER IS A CUSTOMER (From Facebook Post CTA or WhatsApp direct) -> Run AI Sales Consultant!
-              console.log(`🛍️ [WhatsApp Sales] Customer message from +${displayPhone}: "${text}"`);
+
+              // Persist conversation and messages to DB so it appears in Live Inbox
               if (targetTenantId) {
-                if (!channelId) {
-                  const newChanRes = await query(
-                    `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
-                     VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
-                     ON CONFLICT (platform, channel_identifier) DO UPDATE SET updated_at = NOW()
-                     RETURNING id;`,
-                    [targetTenantId, this.phone || 'whatsapp_bot']
-                  );
-                  channelId = newChanRes.rows[0]?.id;
-                }
+                try {
+                  if (!channelId) {
+                    const newChanRes = await query(
+                      `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
+                       VALUES ($1, 'whatsapp', $2, $3, true, true, 'GREEN')
+                       ON CONFLICT (platform, channel_identifier) DO UPDATE SET updated_at = NOW()
+                       RETURNING id;`,
+                      [targetTenantId, this.phone || displayPhone, `${this.userName || 'Owner'} (WhatsApp)`]
+                    );
+                    channelId = newChanRes.rows[0]?.id;
+                  }
 
-                const salesResult = await processCustomerMessage({
-                  tenantId: targetTenantId,
-                  channelId: channelId || 'whatsapp_channel',
-                  platform: 'whatsapp',
-                  pageId: this.phone || 'whatsapp_bot',
-                  senderId: displayPhone,
-                  customerName: (msg as any).pushName || 'WhatsApp Customer',
-                  messageText: text,
-                  accessToken: '',
-                });
-
-                if (salesResult.replyText && !salesResult.isMuted) {
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                  const sent = await sock.sendMessage(targetJid, { text: salesResult.replyText });
-                  if (sent?.key?.id) {
-                    this.sentBotMessageIds.add(sent.key.id);
-                    if (this.sentBotMessageIds.size > 2000) {
-                      this.sentBotMessageIds.clear();
+                  if (channelId) {
+                    const convRes = await query(
+                      `INSERT INTO conversations (tenant_id, channel_id, customer_identifier, customer_name, customer_phone, updated_at)
+                       VALUES ($1, $2, $3, 'Shop Owner (You)', $3, NOW())
+                       ON CONFLICT (channel_id, customer_identifier) DO UPDATE SET updated_at = NOW()
+                       RETURNING id;`,
+                      [targetTenantId, channelId, displayPhone]
+                    );
+                    const convId = convRes.rows[0]?.id;
+                    if (convId) {
+                      await query(
+                        `INSERT INTO messages (conversation_id, sender_type, content, created_at)
+                         VALUES 
+                           ($1, 'customer', $2, NOW() - INTERVAL '1 second'),
+                           ($1, 'ai', $3, NOW());`,
+                        [convId, text, result.replyText]
+                      );
                     }
                   }
+                } catch (persistErr) {
+                  console.error('Failed to persist owner WhatsApp message to DB:', persistErr);
+                }
+              }
+            } else {
+              // SENDER IS A THIRD-PARTY (Customer from Facebook OR Private Family/Friend Contact)
+              if (!targetTenantId) continue;
+
+              if (!channelId) {
+                const newChanRes = await query(
+                  `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
+                   VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
+                   ON CONFLICT (platform, channel_identifier) DO UPDATE SET updated_at = NOW()
+                   RETURNING id;`,
+                  [targetTenantId, this.phone || 'whatsapp_bot']
+                );
+                channelId = newChanRes.rows[0]?.id;
+              }
+
+              // Check if this contact has an existing conversation in our system
+              const convCheck = channelId
+                ? await query(
+                    `SELECT id, ai_muted_until FROM conversations WHERE channel_id = $1 AND customer_identifier = $2 LIMIT 1;`,
+                    [channelId, displayPhone]
+                  )
+                : { rows: [] };
+
+              const hasPriorConversation = convCheck.rows.length > 0;
+
+              // PRIVACY SHIELD: If no commerce/shopping intent (e.g. personal, family, friends chat), PASSIVELY IGNORE!
+              const isShoppingQuery = isCommerceOrShopInquiry(text, hasPriorConversation);
+              if (!isShoppingQuery) {
+                console.log(`🛡️ [WhatsApp Privacy Shield] Non-commerce / personal chat from +${displayPhone} ignored: "${text}"`);
+                continue;
+              }
+
+              console.log(`🛍️ [WhatsApp Sales] Verified Commerce inquiry from +${displayPhone}: "${text}"`);
+
+              const salesResult = await processCustomerMessage({
+                tenantId: targetTenantId,
+                channelId: channelId || 'whatsapp_channel',
+                platform: 'whatsapp',
+                pageId: this.phone || 'whatsapp_bot',
+                senderId: displayPhone,
+                customerName: (msg as any).pushName || 'WhatsApp Customer',
+                messageText: text,
+                accessToken: '',
+              });
+
+              if (salesResult.replyText && !salesResult.isMuted) {
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                const ok = await sendSafe(salesResult.replyText, msg);
+                if (ok) {
                   console.log(`📤 [WA Customer Reply Sent] To: +${displayPhone} | Order created: ${salesResult.orderCreated}`);
                 }
               }
@@ -350,10 +519,7 @@ class WhatsAppBotService {
           } catch (replyErr) {
             console.error('Error replying to WhatsApp in-app message:', replyErr);
             try {
-              const errSent = await sock.sendMessage(targetJid, {
-                text: 'দুঃখিত, আপনার অনুরোধটি প্রসেস করতে সাময়িক সমস্যা হয়েছে। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।',
-              });
-              if (errSent?.key?.id) this.sentBotMessageIds.add(errSent.key.id);
+              await sendSafe('দুঃখিত, আপনার অনুরোধটি প্রসেস করতে সাময়িক সমস্যা হয়েছে। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।', msg);
             } catch (_) {}
           }
         }

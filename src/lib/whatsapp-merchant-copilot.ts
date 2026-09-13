@@ -198,21 +198,35 @@ export async function processMerchantWhatsAppMessage(
     };
   }
 
-  // Quick Command: Facebook Page / চ্যানেল / পেজ / 4
-  if (lower === 'পেজ' || lower === 'চ্যানেল' || lower === 'page' || lower === 'channels' || lower === '4') {
-    let text = `🌐 *${storeName} — চ্যানেল ও এআই স্ট্যাটাস*\n`;
-    text += `━━━━━━━━━━━━━━━━━━━\n`;
-    if (channelsRes.rows.length === 0) {
-      text += `⚠️ আপনার কোনো ফেসবুক পেজ বা চ্যানেল এখনো সংযুক্ত নেই।\nড্যাশবোর্ডের Channels ট্যাব থেকে ফেসবুক পেজ কানেক্ট করুন।`;
+  // Identify specific connected channels
+  const fbChannel = channelsRes.rows.find((c) => c.platform === 'facebook');
+  const waChannel = channelsRes.rows.find((c) => c.platform === 'whatsapp');
+
+  // Quick Command: Facebook Page / চ্যানেল / পেজ / 4 / ফেসবুক
+  const fbKeywords = ['পেজ', 'চ্যানেল', 'page', 'channels', '4', 'facebook', 'ফেসবুক', 'fb'];
+  const isFbQuery = fbKeywords.some((k) => lower === k || lower.includes('facebook') || lower.includes('পেজ কানেক্ট') || lower.includes('ফেসবুক'));
+
+  if (isFbQuery) {
+    let text = `🌐 *${storeName} — ফেসবুক পেজ ও চ্যানেল স্ট্যাটাস*\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━\n`;
+    if (fbChannel) {
+      const fbStatus = fbChannel.ai_active ? '🟢 সক্রিয় (Active)' : '🔴 নিষ্ক্রিয় (Paused)';
+      text += `📘 *ফেসবুক পেজ:* *${fbChannel.channel_name}* (✅ কানেক্টেড)\n`;
+      text += `   • পেজ আইডি: \`${fbChannel.channel_identifier}\`\n`;
+      text += `   • এআই অটো-রিপ্লাই: ${fbStatus}\n`;
+      text += `   • মেসেঞ্জার ও কমেন্ট: কাস্টমারদের প্রশ্নের উত্তর এআই দিয়ে দিচ্ছে\n\n`;
     } else {
-      channelsRes.rows.forEach((c, i) => {
-        const statusEmoji = c.ai_active ? '🟢 সক্রিয়' : '🔴 নিষ্ক্রিয়';
-        text += `${i + 1}. *${c.channel_name}* (${c.platform.toUpperCase()})\n`;
-        text += `   • এআই অটো-রিপ্লাই: ${statusEmoji}\n`;
-        text += `   • ওয়েবহুক ভেরিফিকেশন: ${c.webhook_verified ? '✅ Verified' : '⏳ Pending'}\n\n`;
-      });
-      text += `💡 আপনার ফেসবুক পেজে কাস্টমাররা ইনবক্স বা কমেন্ট করলে এআই স্বয়ংক্রিয়ভাবে উত্তর ও অর্ডার সংগ্রহ করছে।`;
+      text += `📘 *ফেসবুক পেজ:* ⚠️ কোনো পেজ সংযুক্ত নেই\n`;
+      text += `   💡 KothaShop ড্যাশবোর্ডের *Channels* ট্যাব থেকে আপনার ফেসবুক পেজটি কানেক্ট করে নিন।\n\n`;
     }
+
+    if (waChannel) {
+      const waStatus = waChannel.ai_active ? '🟢 সক্রিয়' : '🔴 বন্ধ';
+      text += `📱 *WhatsApp AI Bot:* +${waChannel.channel_identifier} (${waStatus})\n`;
+      text += `   • ওনার অ্যাসিস্ট্যান্ট ও সেলস অটোমেশন সফলভাবে কাজ করছে।\n\n`;
+    }
+
+    text += `💡 _যেকোনো সময় ড্যাশবোর্ড থেকে AI চালু বা বন্ধ করতে পারেন।_`;
 
     return {
       isMerchant: true,
@@ -225,16 +239,17 @@ export async function processMerchantWhatsAppMessage(
 
   // Quick Command: Help / মেনু
   if (lower === 'help' || lower === 'মেনু' || lower === 'hi' || lower === 'হ্যালো' || lower === 'hello' || lower === 'menu') {
+    const fbSummary = fbChannel ? `(✅ ${fbChannel.channel_name} সংযুক্ত)` : '(⚠️ সংযুক্ত নেই)';
     const text = `👋 আসসালামু আলাইকুম *${merchantName}* ভাই!\nআমি আপনার *${storeName}*-এর পার্সোনাল এআই ম্যানেজার (WhatsApp Copilot)।\n\nযেকোনো তথ্য জানতে নিচের নম্বর বা কোড পাঠিয়ে দিন:\n\n` +
       `1️⃣ *অর্ডার* — আজকের ও পেন্ডিং অর্ডারের লাইভ হিসাব\n` +
       `2️⃣ *স্টক* — কোন কোন পণ্যের স্টক কম আছে\n` +
       `3️⃣ *বিক্রি* — আজকের ও মোট বিক্রি এবং লাভের হিসাব\n` +
-      `4️⃣ *পেজ* — ফেসবুক পেজ ও এআই অটো-রিপ্লাই স্ট্যাটাস\n\n` +
+      `4️⃣ *পেজ* — ফেসবুক পেজ ${fbSummary} ও এআই স্ট্যাটাস\n\n` +
       `💬 অথবা স্বাভাবিক বাংলায় যেকোনো প্রশ্ন করুন, যেমন:\n` +
-      `• _"আজকের মোট বিক্রি কত?"_\n` +
-      `• _"লাস্ট অর্ডারটা কোন কাস্টমারের?"_\n` +
-      `• _"আমার পেজে কি এআই চালু আছে?"_\n` +
-      `• _"ডেলিভারি চার্জ কত সেট করা?"_`;
+      `• _"আজকে কয়টা অর্ডার পড়েছে?"_\n` +
+      `• _"আমার ফেসবুক পেজ কি কানেক্টেড আছে?"_\n` +
+      `• _"স্টকে কী কী প্রোডাক্ট আছে?"_\n` +
+      `• _"আজকের মোট বিক্রি কত?"_`;
 
     return {
       isMerchant: true,
@@ -264,19 +279,23 @@ export async function processMerchantWhatsAppMessage(
 - মোট অর্জিত নিট লাভ: ৳${stats.delivered_profit || 0}
 - ডেলিভারি চার্জ: ঢাকা ৳${merchant.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${merchant.delivery_outside_dhaka || 150}
 
+[ফেসবুক পেজ কানেকশন স্ট্যাটাস - বিশেষ নজর দেবে]:
+${fbChannel ? `- ফেসবুক পেজ সফলভাবে সংযুক্ত আছে: পেজের নাম "${fbChannel.channel_name}", পেজ আইডি: ${fbChannel.channel_identifier}, এআই অটো-রিপ্লাই: ${fbChannel.ai_active ? 'চালু (Active)' : 'বন্ধ (Off)'}। ওনার ফেসবুক পেজ নিয়ে জানতে চাইলে নিশ্চিত করবে যে পেজ কানেক্টেড আছে এবং এআই কাজ করছে।` : '- কোনো ফেসবুক পেজ এখনো কানেক্ট করা নেই। ওনার জানতে চাইলে পরিষ্কারভাবে বলবে পেজ কানেক্ট করা নেই এবং ড্যাশবোর্ডের Channels ট্যাব থেকে পেজ কানেক্ট করতে অনুরোধ করবে।'}
+
+[অন্যান্য কানেক্টেড চ্যানেল]:
+${channelsRes.rows.length > 0 ? channelsRes.rows.map((c: any) => `- ${c.platform.toUpperCase()}: "${c.channel_name}" (এআই চালু: ${c.ai_active ? 'হ্যাঁ (ON)' : 'না (OFF)'})`).join('\n') : '- কোনো চ্যানেল কানেক্টেড নেই।'}
+
 [সাম্প্রতিক অর্ডারসমূহ]:
-${recentOrdersRes.rows.length > 0 ? recentOrdersRes.rows.map(o => `- #${o.order_number} (${o.customer_name}, ${o.customer_phone}) বিল: ৳${o.total_amount}, স্ট্যাটাস: ${o.status}, ঠিকানা: ${o.delivery_address || 'N/A'}`).join('\n') : '- কোনো অর্ডার রেকর্ড নেই।'}
+${recentOrdersRes.rows.length > 0 ? recentOrdersRes.rows.map((o: any) => `- #${o.order_number} (${o.customer_name}, ${o.customer_phone}) বিল: ৳${o.total_amount}, স্ট্যাটাস: ${o.status}, ঠিকানা: ${o.delivery_address || 'N/A'}`).join('\n') : '- কোনো অর্ডার রেকর্ড নেই।'}
 
 [লো-স্টক পণ্য তালিকা]:
-${lowStockRes.rows.length > 0 ? lowStockRes.rows.map(p => `- ${p.title}: বাকি ${p.stock} পিস (৳${p.price})`).join('\n') : '- সব পণ্যের স্টক পর্যাপ্ত।'}
-
-[কানেক্টেড সোশ্যাল মিডিয়া চ্যানেল]:
-${channelsRes.rows.length > 0 ? channelsRes.rows.map(c => `- ${c.platform.toUpperCase()}: "${c.channel_name}" (এআই চালু: ${c.ai_active ? 'হ্যাঁ (ON)' : 'না (OFF)'})`).join('\n') : '- কোনো চ্যানেল কানেক্টেড নেই।'}
+${lowStockRes.rows.length > 0 ? lowStockRes.rows.map((p: any) => `- ${p.title}: বাকি ${p.stock} পিস (৳${p.price})`).join('\n') : '- সব পণ্যের স্টক পর্যাপ্ত।'}
 
 [গুরুত্বপূর্ণ নির্দেশিকা]:
 ১. উত্তরটি WhatsApp-এ যাবে, তাই WhatsApp উপযোগী ফরম্যাটিং ব্যবহার করো (যেমন বোল্ড করার জন্য *শব্দ*, ইমোজি এবং পরিষ্কার লাইন ব্রেক)।
-২. সবসময় একজন অভিজ্ঞ, বন্ধুসুলভ, স্মার্ট পার্টনারের মতো আন্তরিক বাংলায় কথা বলবে (যেমন: "জি ভাইয়া", "আপনার শপের বর্তমান হিসাব অনুযায়ী...", ইত্যাদি)।
-৩. সংক্ষেপে কিন্তু যথাযথ ও তথ্যবহুল উত্তর দেবে যাতে মোবাইলে পড়তে সুবিধা হয়।
+২. ওনার যদি ফেসবুক পেজ কানেক্টেড আছে কিনা জিজ্ঞেস করে, সাথে সাথে উপরের ফেসবুক পেজ স্ট্যাটাস দেখে পেজের নামসহ নিশ্চিত উত্তর দেবে।
+৩. সবসময় একজন অভিজ্ঞ, বন্ধুসুলভ, স্মার্ট পার্টনারের মতো আন্তরিক বাংলায় কথা বলবে (যেমন: "জি ভাইয়া", "আপনার শপের বর্তমান হিসাব অনুযায়ী...", ইত্যাদি)।
+৪. সংক্ষেপে কিন্তু যথাযথ ও তথ্যবহুল উত্তর দেবে যাতে মোবাইলে পড়তে সুবিধা হয়।
 `;
 
   try {

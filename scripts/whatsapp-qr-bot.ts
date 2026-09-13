@@ -14,6 +14,7 @@ import fs from 'fs';
 import { processMerchantWhatsAppMessage } from '../src/lib/whatsapp-merchant-copilot';
 import { processCustomerMessage } from '../src/lib/ai-sales-engine';
 import { query } from '../src/lib/db';
+import { isCommerceOrShopInquiry } from '../src/lib/whatsapp-baileys-service';
 
 const AUTH_DIR = path.join(process.cwd(), 'baileys_auth');
 
@@ -54,15 +55,18 @@ async function startWhatsAppBot() {
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      const shouldReconnect = !isReplaced && !isLoggedOut;
+
       console.log(`⚠️ সংযোগ বিচ্ছিন্ন হয়েছে (Code: ${statusCode})। পুনরায় সংযোগ চেষ্টা করা হচ্ছে: ${shouldReconnect}`);
 
       if (shouldReconnect) {
         setTimeout(() => {
           startWhatsAppBot();
-        }, 3000);
+        }, 3500);
       } else {
-        console.log('❌ ডিভাইস থেকে লগআউট করা হয়েছে। পুনরায় QR স্ক্যান করতে baileys_auth ফোল্ডার মুছে স্ক্রিপ্ট আবার চালু করুন।');
+        console.log('❌ ডিভাইস থেকে লগআউট বা অন্য সেশন দ্বারা রিপ্লেস করা হয়েছে।');
       }
     } else if (connection === 'open') {
       const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
@@ -92,22 +96,23 @@ async function startWhatsAppBot() {
 
   // Listen to incoming messages
   sock.ev.on('messages.upsert', async (m) => {
-    if (m.type !== 'notify') return;
+    if (m.type !== 'notify' && m.type !== 'append') return;
 
     for (const msg of m.messages) {
       if (!msg.message) continue;
 
       const remoteJid = msg.key.remoteJid || '';
-      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+      if (!remoteJid || remoteJid.endsWith('@broadcast') || remoteJid.endsWith('@g.us')) continue;
 
       const botPhone = (sock.user?.id || '').split(':')[0] || (sock.user?.id || '').split('@')[0] || '';
       const cleanBotPhone = botPhone.replace(/\D/g, '');
-      const rawRemotePhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      const rawRemotePhone = (remoteJid.split('@')[0] || '').replace(/\D/g, '');
 
       // Check if this message was sent to SELF ("Message yourself" in WhatsApp)
       const isSelfChat =
         (cleanBotPhone && (rawRemotePhone === cleanBotPhone || rawRemotePhone.endsWith(cleanBotPhone.slice(-10)))) ||
-        remoteJid === `${botPhone}@s.whatsapp.net`;
+        remoteJid === `${botPhone}@s.whatsapp.net` ||
+        remoteJid.endsWith('@lid');
 
       // Ignore outgoing messages sent to OTHER people (avoid loop)
       if (msg.key.fromMe && !isSelfChat) continue;
@@ -120,11 +125,15 @@ async function startWhatsAppBot() {
 
       if (!text || !text.trim()) continue;
 
-      const rawPhone = remoteJid.replace('@s.whatsapp.net', '');
+      const rawPhone = rawRemotePhone || cleanBotPhone;
       console.log(`\n📩 [WhatsApp Message Received] From: +${rawPhone} | isSelfChat: ${isSelfChat} | Text: "${text}"`);
 
+      const targetJid = isSelfChat && cleanBotPhone ? `${cleanBotPhone}@s.whatsapp.net` : remoteJid;
+
       try {
-        await sock.sendPresenceUpdate('composing', remoteJid);
+        if (!isSelfChat) {
+          sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
+        }
 
         let targetTenantId: string | null = null;
         let channelId: string | null = null;
@@ -165,40 +174,67 @@ async function startWhatsAppBot() {
           // SENDER IS OWNER -> Run Business Copilot
           console.log(`👑 [WA Owner Query] From: +${rawPhone} | "${text}"`);
           const result = await processMerchantWhatsAppMessage(rawPhone, text);
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          await sock.sendMessage(remoteJid, { text: result.replyText });
-          console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone}`);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          const formattedReply = result.replyText.startsWith('🤖') || result.replyText.startsWith('👋') || result.replyText.startsWith('🎉')
+            ? result.replyText
+            : `🤖 *KothaShop AI Copilot*\n━━━━━━━━━━━━━━━━━━━━\n${result.replyText}`;
+          try {
+            await sock.sendMessage(targetJid, { text: formattedReply }, { quoted: msg });
+            console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone} (${targetJid})`);
+          } catch (sendErr) {
+            if (remoteJid !== targetJid) {
+              await sock.sendMessage(remoteJid, { text: formattedReply }, { quoted: msg }).catch(() => {});
+            }
+          }
         } else {
-          // SENDER IS A CUSTOMER (From Facebook Post CTA or WhatsApp direct) -> Run AI Sales Consultant!
-          console.log(`🛍️ [WA Customer Sales] From: +${rawPhone} | "${text}"`);
-          if (targetTenantId) {
-            if (!channelId) {
-              const newChanRes = await query(
-                `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
-                 VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
-                 ON CONFLICT (tenant_id, platform, channel_identifier) DO UPDATE SET updated_at = NOW()
-                 RETURNING id;`,
-                [targetTenantId, botPhone || 'whatsapp_bot']
-              );
-              channelId = newChanRes.rows[0]?.id;
-            }
+          // SENDER IS A THIRD-PARTY (Customer from Facebook OR Private Family/Friend Contact)
+          if (!targetTenantId) continue;
 
-            const salesResult = await processCustomerMessage({
-              tenantId: targetTenantId,
-              channelId: channelId || 'whatsapp_channel',
-              platform: 'whatsapp',
-              pageId: botPhone || 'whatsapp_bot',
-              senderId: rawPhone,
-              customerName: (msg as any).pushName || 'WhatsApp Customer',
-              messageText: text,
-              accessToken: '',
-            });
+          if (!channelId) {
+            const newChanRes = await query(
+              `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
+               VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
+               ON CONFLICT (tenant_id, platform, channel_identifier) DO UPDATE SET updated_at = NOW()
+               RETURNING id;`,
+              [targetTenantId, botPhone || 'whatsapp_bot']
+            );
+            channelId = newChanRes.rows[0]?.id;
+          }
 
-            if (salesResult.replyText && !salesResult.isMuted) {
-              await new Promise((resolve) => setTimeout(resolve, 600));
-              await sock.sendMessage(remoteJid, { text: salesResult.replyText });
-              console.log(`📤 [WA Customer Reply Sent] To: +${rawPhone} | Order created: ${salesResult.orderCreated}`);
-            }
+          // Check if this contact has an existing conversation in our system
+          const convCheck = channelId
+            ? await query(
+                `SELECT id, ai_muted_until FROM conversations WHERE channel_id = $1 AND customer_identifier = $2 LIMIT 1;`,
+                [channelId, rawPhone]
+              )
+            : { rows: [] };
+
+          const hasPriorConversation = convCheck.rows.length > 0;
+
+          // PRIVACY SHIELD: If no commerce intent is detected (personal/family chat), PASSIVELY IGNORE!
+          const isShoppingQuery = isCommerceOrShopInquiry(text, hasPriorConversation);
+          if (!isShoppingQuery) {
+            console.log(`🛡️ [WhatsApp Privacy Shield] Non-commerce / personal chat from +${rawPhone} ignored: "${text}"`);
+            continue;
+          }
+
+          console.log(`🛍️ [WA Customer Sales] Verified Commerce inquiry from +${rawPhone}: "${text}"`);
+
+          const salesResult = await processCustomerMessage({
+            tenantId: targetTenantId,
+            channelId: channelId || 'whatsapp_channel',
+            platform: 'whatsapp',
+            pageId: botPhone || 'whatsapp_bot',
+            senderId: rawPhone,
+            customerName: (msg as any).pushName || 'WhatsApp Customer',
+            messageText: text,
+            accessToken: '',
+          });
+
+          if (salesResult.replyText && !salesResult.isMuted) {
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            await sock.sendMessage(remoteJid, { text: salesResult.replyText });
+            console.log(`📤 [WA Customer Reply Sent] To: +${rawPhone} | Order created: ${salesResult.orderCreated}`);
           }
         }
       } catch (err) {

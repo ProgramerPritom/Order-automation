@@ -27,6 +27,8 @@ import {
   Smartphone,
   LogOut,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useConfirm } from '@/components/providers/ConfirmProvider';
 
 interface Channel {
   id: string;
@@ -39,6 +41,7 @@ interface Channel {
 }
 
 export default function ChannelsPage() {
+  const { confirm } = useConfirm();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -121,7 +124,15 @@ export default function ChannelsPage() {
   };
 
   const handleDisconnectWhatsApp = async () => {
-    if (!confirm('আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট / লগআউট করতে চান?')) return;
+    const confirmed = await confirm({
+      title: 'WhatsApp অ্যাকাউন্ট ডিসকানেক্ট',
+      message: 'আপনি কি নিশ্চিত যে লিঙ্ক করা WhatsApp অ্যাকাউন্টটি ডিসকানেক্ট / লগআউট করতে চান? এটি করলে বট সাময়িকভাবে অফলাইন থাকবে।',
+      confirmText: 'হ্যাঁ, লগআউট করুন',
+      cancelText: 'বাতিল',
+      type: 'danger',
+    });
+    if (!confirmed) return;
+
     setDisconnecting(true);
     // Immediately clear WhatsApp from state optimistically
     setChannels((prev) => prev.filter((c) => c.platform !== 'whatsapp'));
@@ -141,11 +152,10 @@ export default function ChannelsPage() {
       });
       await res.json();
       await fetchChannels();
-      setOauthSuccessMessage('WhatsApp অ্যাকাউন্ট সফলভাবে লগআউট ও সংযোগ বিচ্ছিন্ন করা হয়েছে।');
-      setOauthSuccess(true);
-      setTimeout(() => setOauthSuccess(false), 5000);
+      toast.success('WhatsApp অ্যাকাউন্ট সফলভাবে লগআউট ও সংযোগ বিচ্ছিন্ন করা হয়েছে।');
     } catch (e) {
       console.error(e);
+      toast.error('WhatsApp ডিসকানেক্ট করতে সমস্যা হয়েছে।');
     } finally {
       setDisconnecting(false);
     }
@@ -177,15 +187,13 @@ export default function ChannelsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setOauthSuccessMessage('🎉 আপনার WhatsApp-এ সফলভাবে টেস্ট মেসেজ পাঠানো হয়েছে! অ্যাপটি চেক করুন।');
-        setOauthSuccess(true);
-        setTimeout(() => setOauthSuccess(false), 7000);
+        toast.success('🎉 আপনার WhatsApp-এ সফলভাবে টেস্ট মেসেজ পাঠানো হয়েছে! অ্যাপটি চেক করুন।');
       } else {
-        alert(data.message || 'মেসেজ পাঠাতে ব্যর্থ হয়েছে।');
+        toast.error(data.message || 'মেসেজ পাঠাতে ব্যর্থ হয়েছে।');
       }
     } catch (e: any) {
       console.error(e);
-      alert('মেসেজ পাঠাতে সমস্যা হয়েছে।');
+      toast.error('মেসেজ পাঠাতে সমস্যা হয়েছে।');
     } finally {
       setSendingGreeting(false);
     }
@@ -222,7 +230,7 @@ export default function ChannelsPage() {
   const handleFacebookOAuthLogin = () => {
     const token = getSessionToken();
     if (!token) {
-      alert('আপনার লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
+      toast.error('আপনার লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
       window.location.href = '/login';
       return;
     }
@@ -232,7 +240,7 @@ export default function ChannelsPage() {
   const handleWhatsAppOAuthLogin = () => {
     const token = getSessionToken();
     if (!token) {
-      alert('আপনার লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
+      toast.error('আপনার লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
       window.location.href = '/login';
       return;
     }
@@ -316,15 +324,15 @@ export default function ChannelsPage() {
         setChannels((prev) =>
           prev.map((c) => (c.id === channel.id ? { ...c, ai_active: channel.ai_active } : c))
         );
-        alert(data.error || 'এআই স্ট্যাটাস পরিবর্তন করা যায়নি');
+        toast.error(data.error || 'এআই স্ট্যাটাস পরিবর্তন করা যায়নি');
       } else {
-        setOauthSuccessMessage(
-          newStatus
-            ? `🟢 "${channel.channel_name}"-এর এআই সফলভাবে চালু করা হয়েছে!`
-            : `🔴 "${channel.channel_name}"-এর এআই সম্পূর্ণ বন্ধ (OFF) করা হয়েছে। কোনো অটো-রিপ্লাই যাবে না।`
-        );
+        const msg = newStatus
+          ? `🟢 "${channel.channel_name}"-এর এআই সফলভাবে চালু করা হয়েছে!`
+          : `🔴 "${channel.channel_name}"-এর এআই সম্পূর্ণ বন্ধ (OFF) করা হয়েছে।`;
+        setOauthSuccessMessage(msg);
         setOauthSuccess(true);
         setOauthError(null);
+        toast.success(msg);
         setTimeout(() => setOauthSuccess(false), 5000);
       }
     } catch (e) {
@@ -346,13 +354,14 @@ export default function ChannelsPage() {
   };
 
   const handleDeleteChannel = async (channelId: string, name: string) => {
-    if (
-      !confirm(
-        `আপনি কি নিশ্চিত যে "${name}" পেজটি সংযোগ বিচ্ছিন্ন (Disconnect) করতে চান? নিশ্চিত করলে এই পেজটি ড্যাশবোর্ড থেকে মুছে যাবে।`
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'চ্যানেল সংযোগ বিচ্ছিন্ন',
+      message: `আপনি কি নিশ্চিত যে "${name}" পেজটি সংযোগ বিচ্ছিন্ন (Disconnect) করতে চান? নিশ্চিত করলে এই পেজটি ড্যাশবোর্ড থেকে মুছে যাবে।`,
+      confirmText: 'হ্যাঁ, মুছে ফেলুন',
+      cancelText: 'বাতিল',
+      type: 'danger',
+    });
+    if (!confirmed) return;
 
     setDeletingId(channelId);
     try {
@@ -376,16 +385,13 @@ export default function ChannelsPage() {
             body: JSON.stringify({ action: 'disconnect' }),
           }).catch(() => {});
         }
-        setOauthSuccessMessage(data.message || `"${name}" চ্যানেলটি সফলভাবে মুছে ফেলা হয়েছে।`);
-        setOauthSuccess(true);
-        setOauthError(null);
-        setTimeout(() => setOauthSuccess(false), 6000);
+        toast.success(data.message || `"${name}" চ্যানেলটি সফলভাবে মুছে ফেলা হয়েছে।`);
       } else {
-        alert(data.error || 'চ্যানেল ডিলিট করা যায়নি।');
+        toast.error(data.error || 'চ্যানেল ডিলিট করা যায়নি।');
       }
     } catch (e: any) {
       console.error('Delete channel error:', e);
-      alert(e.message || 'চ্যানেল ডিলিট করা যায়নি।');
+      toast.error(e.message || 'চ্যানেল ডিলিট করা যায়নি।');
     } finally {
       setDeletingId(null);
     }
@@ -516,13 +522,17 @@ export default function ChannelsPage() {
             : `🎉 চ্যানেল সফলভাবে কানেক্ট হয়েছে!`
         );
         setOauthSuccess(true);
-        setTimeout(() => setOauthSuccess(false), 8000);
+        toast.success(
+          platform === 'whatsapp'
+            ? `🎉 চমৎকার! আপনার WhatsApp নম্বর (+${data.channel.channel_identifier}) সফলভাবে কানেক্ট হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয়!`
+            : `🎉 চ্যানেল সফলভাবে কানেক্ট হয়েছে!`
+        );
       } else {
-        alert(data.error || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
+        toast.error(data.error || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
       }
     } catch (e: any) {
       console.error(e);
-      alert(e.message || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
+      toast.error(e.message || 'চ্যানেল যুক্ত করতে সমস্যা হয়েছে।');
     } finally {
       setSubmitting(false);
     }

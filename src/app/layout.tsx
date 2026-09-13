@@ -31,6 +31,8 @@ export const metadata: Metadata = {
 
 import StoreProvider from '@/components/providers/StoreProvider';
 import PublicSalesChatbot from '@/components/marketing/PublicSalesChatbot';
+import { ConfirmProvider } from '@/components/providers/ConfirmProvider';
+import { Toaster } from 'sonner';
 
 export default function RootLayout({
   children,
@@ -41,8 +43,24 @@ export default function RootLayout({
     <html lang="bn" className="scroll-smooth">
       <body className={`${hindSiliguri.className} ${hindSiliguri.variable} ${inter.variable} antialiased text-slate-900 bg-slate-50 selection:bg-indigo-500 selection:text-white`}>
         <StoreProvider>
-          {children}
-          <PublicSalesChatbot />
+          <ConfirmProvider>
+            {children}
+            <PublicSalesChatbot />
+            <Toaster 
+              position="top-right" 
+              richColors 
+              closeButton 
+              duration={4000}
+              toastOptions={{
+                style: {
+                  fontFamily: 'var(--font-bengali), var(--font-sans)',
+                  borderRadius: '14px',
+                  boxShadow: '0 10px 30px -5px rgba(0, 0, 0, 0.15)',
+                  fontSize: '14px',
+                },
+              }}
+            />
+          </ConfirmProvider>
         </StoreProvider>
       </body>
     </html>
