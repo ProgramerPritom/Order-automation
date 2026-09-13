@@ -277,7 +277,7 @@ class WhatsAppBotService {
                   const newChanRes = await query(
                     `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
                      VALUES ($1, 'whatsapp', $2, 'WhatsApp Commerce', true, true, 'GREEN')
-                     ON CONFLICT (tenant_id, platform, channel_identifier) DO UPDATE SET updated_at = NOW()
+                     ON CONFLICT (platform, channel_identifier) DO UPDATE SET updated_at = NOW()
                      RETURNING id;`,
                     [targetTenantId, this.phone || 'whatsapp_bot']
                   );
@@ -333,8 +333,23 @@ class WhatsAppBotService {
     if (!this.phone) return;
 
     try {
-      // Find tenant: either this.tenantId or default tenant
+      // Find tenant: either this.tenantId, match by phone, or default tenant
       let targetTenantId = this.tenantId;
+      if (!targetTenantId && this.phone) {
+        const cleanP = this.phone.replace(/\D/g, '');
+        const normP = cleanP.startsWith('880') ? '0' + cleanP.slice(3) : cleanP;
+        const tenantByPhone = await query(
+          `SELECT u.tenant_id FROM users u WHERE u.phone = $1 OR (LENGTH($1) >= 10 AND RIGHT(COALESCE(u.phone, ''), 10) = RIGHT($1, 10))
+           UNION
+           SELECT t.id as tenant_id FROM tenants t WHERE t.phone = $1 OR (LENGTH($1) >= 10 AND RIGHT(COALESCE(t.phone, ''), 10) = RIGHT($1, 10))
+           LIMIT 1;`,
+          [normP]
+        );
+        if (tenantByPhone.rows.length > 0) {
+          targetTenantId = tenantByPhone.rows[0].tenant_id;
+        }
+      }
+
       if (!targetTenantId) {
         const defaultTenantRes = await query(
           `SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1;`
@@ -351,8 +366,8 @@ class WhatsAppBotService {
       await query(
         `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, ai_active, webhook_verified, quality_rating)
          VALUES ($1, 'whatsapp', $2, $3, true, true, 'GREEN')
-         ON CONFLICT (tenant_id, platform, channel_identifier) 
-         DO UPDATE SET channel_name = EXCLUDED.channel_name, ai_active = true, webhook_verified = true, updated_at = CURRENT_TIMESTAMP;`,
+         ON CONFLICT (platform, channel_identifier) 
+         DO UPDATE SET tenant_id = EXCLUDED.tenant_id, channel_name = EXCLUDED.channel_name, ai_active = true, webhook_verified = true, updated_at = CURRENT_TIMESTAMP;`,
         [targetTenantId, this.phone, channelName]
       );
       console.log(`💾 [Baileys Web] Synced WhatsApp channel to DB for tenant ${targetTenantId}`);

@@ -74,6 +74,26 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (action === 'reload') {
+      if (globalThis.__whatsapp_bot__) {
+        try {
+          (globalThis.__whatsapp_bot__ as any).sock?.end(undefined);
+        } catch (_) {}
+      }
+      globalThis.__whatsapp_bot__ = undefined;
+      const wa = getWhatsAppService();
+      wa.start(tenantId).catch((err) => console.error('Reload WhatsApp error:', err));
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (wa.status === 'connected' || wa.status === 'qr_ready') break;
+      }
+      return NextResponse.json({
+        success: true,
+        message: 'WhatsApp bot reloaded with latest code',
+        ...wa.getStatus(),
+      });
+    }
+
     if (action === 'disconnect') {
       const wa = await resetWhatsAppService();
       return NextResponse.json({

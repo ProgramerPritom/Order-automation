@@ -95,7 +95,10 @@ export default function ChannelsPage() {
 
   const fetchQrStatus = async () => {
     try {
-      const res = await fetch('/api/whatsapp/qr');
+      const token = getSessionToken();
+      const res = await fetch('/api/whatsapp/qr', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       if (data.success) {
         setBotStatus(data.status);
@@ -1309,6 +1312,120 @@ export default function ChannelsPage() {
                 </div>
               );
             })}
+
+          {/* Live WhatsApp Card when connected via QR Web */}
+          {botStatus === 'connected' &&
+            channels.filter((c) => c.platform === 'whatsapp').length === 0 && (
+              <div className="bg-white rounded-3xl p-6 sm:p-7 border border-emerald-200/80 hover:shadow-md transition-all shadow-sm flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-10 -mt-10 bg-emerald-50/50" />
+
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                      💬
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>🟢 এআই চালু (ON)</span>
+                      </span>
+                      <button
+                        onClick={handleDisconnectWhatsApp}
+                        disabled={disconnecting}
+                        title="WhatsApp থেকে লগআউট করুন"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    {connectedUser ? `${connectedUser} (WhatsApp)` : 'WhatsApp Business AI'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600 inline" />
+                    <span>+{connectedPhone || '8801767026831'}</span>
+                  </p>
+
+                  {/* Smart wa.me Order Link */}
+                  <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-emerald-900">স্মার্ট WhatsApp লিঙ্ক:</span>
+                      <span className="text-[10px] text-emerald-700 font-medium">কাস্টমারকে পাঠানোর লিঙ্ক</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-xl border border-emerald-200">
+                      <span className="font-mono text-[10px] text-slate-600 truncate flex-1 pl-1">
+                        wa.me/{connectedPhone || '8801767026831'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyWaLink(connectedPhone || '8801767026831')}
+                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1 shrink-0"
+                      >
+                        {copiedLink === (connectedPhone || '8801767026831') ? (
+                          <>
+                            <Check className="w-3 h-3" />
+                            <span>কপি হয়েছে!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>কপি</span>
+                          </>
+                        )}
+                      </button>
+                      <a
+                        href={`https://wa.me/${connectedPhone || '8801767026831'}?text=Hello,%20I%20want%20to%20order`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-all shrink-0"
+                        title="WhatsApp-এ ওপেন করুন"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-2 text-xs border-t border-slate-100 pt-3">
+                    <div className="flex justify-between py-0.5 text-slate-600">
+                      <span>প্ল্যাটফর্ম:</span>
+                      <span className="font-bold text-slate-800">WhatsApp Commerce Hub (Web QR)</span>
+                    </div>
+                    <div className="flex justify-between py-0.5 text-slate-600">
+                      <span>অটো-রিপ্লাই ও সেলস এআই:</span>
+                      <span className="font-bold text-emerald-600">সক্রিয় (Active)</span>
+                    </div>
+                    <div className="flex justify-between py-0.5 text-slate-600">
+                      <span>সংযোগের ধরন:</span>
+                      <span className="font-bold text-slate-700">QR Code Linked Device</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
+                  <button
+                    type="button"
+                    onClick={handleSendGreeting}
+                    disabled={sendingGreeting}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>{sendingGreeting ? 'পাঠানো হচ্ছে...' : '📨 টেস্ট মেসেজ পাঠান'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDisconnectWhatsApp}
+                    disabled={disconnecting}
+                    className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{disconnecting ? 'লগআউট হচ্ছে...' : 'লগআউট / ডিসকানেক্ট করুন'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
         </div>
       )}
 
