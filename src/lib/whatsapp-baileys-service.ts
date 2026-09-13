@@ -208,8 +208,11 @@ class WhatsAppBotService {
           const cleanMyPhone = (this.phone || '').replace(/\D/g, '');
           const rawRemoteUser = (remoteJid.split('@')[0] || '').split(':')[0];
           const cleanRemotePhone = rawRemoteUser.replace(/\D/g, '');
+          const userLidPrefix = ((sock.user as any)?.lid || '').split('@')[0].split(':')[0];
+          const userJidPrefix = (sock.user?.id || '').split('@')[0].split(':')[0];
 
           // Check if this message was sent to SELF ("Message yourself" / Note to Self in WhatsApp)
+          // In WhatsApp multi-device, self messages can be @s.whatsapp.net, user's LID @lid, or own phone
           const isSelfChat =
             (cleanMyPhone && cleanRemotePhone && (
               cleanRemotePhone === cleanMyPhone ||
@@ -217,26 +220,37 @@ class WhatsAppBotService {
               cleanMyPhone.endsWith(cleanRemotePhone.slice(-10))
             )) ||
             remoteJid === `${this.phone}@s.whatsapp.net` ||
-            (sock.user?.id && remoteJid.split(':')[0] === sock.user.id.split(':')[0]);
+            (userJidPrefix && rawRemoteUser === userJidPrefix) ||
+            (userLidPrefix && rawRemoteUser === userLidPrefix) ||
+            remoteJid.endsWith('@lid');
 
           // If message is fromMe, but it's NOT self chat (e.g. merchant chatting manually with a customer on WA), ignore
           if (msg.key.fromMe && !isSelfChat) continue;
 
-          const text =
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            msg.message.videoMessage?.caption ||
-            '';
+          // Unwrap message if ephemeral / viewOnce / documentWithCaption
+          let rawMsg: any = msg.message;
+          if (rawMsg.ephemeralMessage?.message) rawMsg = rawMsg.ephemeralMessage.message;
+          if (rawMsg.viewOnceMessage?.message) rawMsg = rawMsg.viewOnceMessage.message;
+          if (rawMsg.viewOnceMessageV2?.message) rawMsg = rawMsg.viewOnceMessageV2.message;
+          if (rawMsg.documentWithCaptionMessage?.message) rawMsg = rawMsg.documentWithCaptionMessage.message;
 
-          if (!text || !text.trim()) continue;
+          const text = (
+            rawMsg.conversation ||
+            rawMsg.extendedTextMessage?.text ||
+            rawMsg.imageMessage?.caption ||
+            rawMsg.videoMessage?.caption ||
+            ''
+          ).trim();
 
-          const displayPhone = cleanRemotePhone || cleanMyPhone || 'unknown';
-          console.log(`\n📩 [WA In-App Received] From: +${displayPhone} | isSelfChat: ${isSelfChat} | fromMe: ${msg.key.fromMe} | Text: "${text}"`);
+          if (!text) continue;
 
-          const targetJid = remoteJid.includes('@s.whatsapp.net') && cleanRemotePhone
-            ? `${cleanRemotePhone}@s.whatsapp.net`
-            : remoteJid;
+          const displayPhone = cleanMyPhone || cleanRemotePhone || 'unknown';
+          console.log(`\n📩 [WA Received] From: +${displayPhone} | isSelfChat: ${isSelfChat} | fromMe: ${msg.key.fromMe} | Text: "${text}"`);
+
+          // For self-chat, ALWAYS reply to owner's WhatsApp number so it shows in "Message yourself"
+          const targetJid = isSelfChat && cleanMyPhone
+            ? `${cleanMyPhone}@s.whatsapp.net`
+            : (remoteJid.includes('@s.whatsapp.net') && cleanRemotePhone ? `${cleanRemotePhone}@s.whatsapp.net` : remoteJid);
 
           try {
             await sock.sendPresenceUpdate('composing', targetJid);
