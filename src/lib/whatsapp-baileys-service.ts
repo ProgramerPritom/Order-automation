@@ -37,6 +37,7 @@ class WhatsAppBotService {
   private connectedAt: number | null = null;
   private isInitializing: boolean = false;
   private initStartTime: number = 0;
+  private sentBotMessageIds = new Set<string>();
 
   constructor() {
     // Check if auth folder exists with existing credentials
@@ -165,46 +166,63 @@ class WhatsAppBotService {
 
       // Message listener
       sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify') return;
+        // WhatsApp sends 'notify' for incoming chats, and 'append' when syncing self messages or from linked phone
+        if (m.type !== 'notify' && m.type !== 'append') return;
 
         for (const msg of m.messages) {
           if (!msg.message) continue;
 
-          const remoteJid = msg.key.remoteJid || '';
-          if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+          // Check if this message was sent by our bot (to avoid echo loop)
+          if (msg.key.id && this.sentBotMessageIds.has(msg.key.id)) {
+            continue;
+          }
 
-          const cleanPhone = this.phone ? this.phone.replace(/\D/g, '') : '';
-          const rawRemotePhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+          const remoteJid = msg.key.remoteJid || '';
+          if (!remoteJid || remoteJid.endsWith('@broadcast') || remoteJid.endsWith('@g.us')) continue;
+
+          const cleanMyPhone = (this.phone || '').replace(/\D/g, '');
+          const rawRemoteUser = (remoteJid.split('@')[0] || '').split(':')[0];
+          const cleanRemotePhone = rawRemoteUser.replace(/\D/g, '');
 
           // Check if this message was sent to SELF ("Message yourself" / Note to Self in WhatsApp)
           const isSelfChat =
-            (cleanPhone && (rawRemotePhone === cleanPhone || rawRemotePhone.endsWith(cleanPhone.slice(-10)))) ||
-            remoteJid === `${this.phone}@s.whatsapp.net`;
+            (cleanMyPhone && cleanRemotePhone && (
+              cleanRemotePhone === cleanMyPhone ||
+              cleanRemotePhone.endsWith(cleanMyPhone.slice(-10)) ||
+              cleanMyPhone.endsWith(cleanRemotePhone.slice(-10))
+            )) ||
+            remoteJid === `${this.phone}@s.whatsapp.net` ||
+            (sock.user?.id && remoteJid.split(':')[0] === sock.user.id.split(':')[0]);
 
-          // If fromMe is true and it's NOT self-chat, ignore (avoid echoing bot's own replies to others)
+          // If message is fromMe, but it's NOT self chat (e.g. merchant chatting manually with a customer on WA), ignore
           if (msg.key.fromMe && !isSelfChat) continue;
 
           const text =
             msg.message.conversation ||
             msg.message.extendedTextMessage?.text ||
             msg.message.imageMessage?.caption ||
+            msg.message.videoMessage?.caption ||
             '';
 
           if (!text || !text.trim()) continue;
 
-          const rawPhone = remoteJid.replace('@s.whatsapp.net', '');
-          console.log(`\n📩 [WA In-App Received] From: +${rawPhone} | isSelfChat: ${isSelfChat} | Text: "${text}"`);
+          const displayPhone = cleanRemotePhone || cleanMyPhone || 'unknown';
+          console.log(`\n📩 [WA In-App Received] From: +${displayPhone} | isSelfChat: ${isSelfChat} | fromMe: ${msg.key.fromMe} | Text: "${text}"`);
+
+          const targetJid = remoteJid.includes('@s.whatsapp.net') && cleanRemotePhone
+            ? `${cleanRemotePhone}@s.whatsapp.net`
+            : remoteJid;
 
           try {
-            await sock.sendPresenceUpdate('composing', remoteJid);
+            await sock.sendPresenceUpdate('composing', targetJid);
 
             // 1. Identify which tenant and channel this WhatsApp bot belongs to
             let targetTenantId = this.tenantId;
             let channelId: string | null = null;
 
             const channelRes = await query(
-              `SELECT id, tenant_id, ai_active FROM channels WHERE platform = 'whatsapp' AND channel_identifier = $1 LIMIT 1;`,
-              [this.phone]
+              `SELECT id, tenant_id, ai_active FROM channels WHERE platform = 'whatsapp' AND (channel_identifier = $1 OR channel_identifier = $2) LIMIT 1;`,
+              [this.phone, displayPhone]
             );
 
             if (channelRes.rows.length > 0) {
@@ -230,24 +248,30 @@ class WhatsAppBotService {
                WHERE u.tenant_id = $1 AND (
                  u.phone = $2 OR (LENGTH($2) >= 10 AND RIGHT(COALESCE(u.phone, ''), 10) = RIGHT($2, 10))
                ) LIMIT 1;`,
-              [targetTenantId, rawPhone]
+              [targetTenantId, displayPhone]
             );
 
             const isOwner =
               isSelfChat ||
-              (cleanPhone && rawPhone.endsWith(cleanPhone.slice(-10))) ||
+              (cleanMyPhone && displayPhone.endsWith(cleanMyPhone.slice(-10))) ||
               merchantCheck.rows.length > 0;
 
             if (isOwner) {
               // SENDER IS THE SHOP OWNER -> Run Business Copilot
-              console.log(`👑 [WhatsApp Copilot] Owner query from +${rawPhone}: "${text}"`);
-              const result = await processMerchantWhatsAppMessage(rawPhone, text);
-              await new Promise((resolve) => setTimeout(resolve, 400));
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-              console.log(`📤 [WA Owner Reply Sent] To: +${rawPhone}`);
+              console.log(`👑 [WhatsApp Copilot] Owner query from +${displayPhone}: "${text}"`);
+              const result = await processMerchantWhatsAppMessage(displayPhone, text);
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              const sent = await sock.sendMessage(targetJid, { text: result.replyText });
+              if (sent?.key?.id) {
+                this.sentBotMessageIds.add(sent.key.id);
+                if (this.sentBotMessageIds.size > 2000) {
+                  this.sentBotMessageIds.clear();
+                }
+              }
+              console.log(`📤 [WA Owner Reply Sent] To: +${displayPhone} (${targetJid})`);
             } else {
               // SENDER IS A CUSTOMER (From Facebook Post CTA or WhatsApp direct) -> Run AI Sales Consultant!
-              console.log(`🛍️ [WhatsApp Sales] Customer message from +${rawPhone}: "${text}"`);
+              console.log(`🛍️ [WhatsApp Sales] Customer message from +${displayPhone}: "${text}"`);
               if (targetTenantId) {
                 if (!channelId) {
                   const newChanRes = await query(
@@ -265,25 +289,32 @@ class WhatsAppBotService {
                   channelId: channelId || 'whatsapp_channel',
                   platform: 'whatsapp',
                   pageId: this.phone || 'whatsapp_bot',
-                  senderId: rawPhone,
+                  senderId: displayPhone,
                   customerName: (msg as any).pushName || 'WhatsApp Customer',
                   messageText: text,
                   accessToken: '',
                 });
 
                 if (salesResult.replyText && !salesResult.isMuted) {
-                  await new Promise((resolve) => setTimeout(resolve, 600));
-                  await sock.sendMessage(remoteJid, { text: salesResult.replyText });
-                  console.log(`📤 [WA Customer Reply Sent] To: +${rawPhone} | Order created: ${salesResult.orderCreated}`);
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                  const sent = await sock.sendMessage(targetJid, { text: salesResult.replyText });
+                  if (sent?.key?.id) {
+                    this.sentBotMessageIds.add(sent.key.id);
+                    if (this.sentBotMessageIds.size > 2000) {
+                      this.sentBotMessageIds.clear();
+                    }
+                  }
+                  console.log(`📤 [WA Customer Reply Sent] To: +${displayPhone} | Order created: ${salesResult.orderCreated}`);
                 }
               }
             }
           } catch (replyErr) {
             console.error('Error replying to WhatsApp in-app message:', replyErr);
             try {
-              await sock.sendMessage(remoteJid, {
+              const errSent = await sock.sendMessage(targetJid, {
                 text: 'দুঃখিত, আপনার অনুরোধটি প্রসেস করতে সাময়িক সমস্যা হয়েছে। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।',
               });
+              if (errSent?.key?.id) this.sentBotMessageIds.add(errSent.key.id);
             } catch (_) {}
           }
         }
@@ -350,7 +381,10 @@ class WhatsAppBotService {
         `২️⃣ *কাস্টমার অর্ডার অটোমেশন:* আপনার ফেসবুক পেজ বা অন্য যেকোনো কাস্টমার আপনার এই নম্বরে মেসেজ পাঠালে আমি স্বয়ংক্রিয়ভাবে তাদের সাথে কথা বলে সাইজ/ঠিকানা নিয়ে ডাটাবেজে অর্ডার কনফার্ম করে দেব!\n\n` +
         `💡 _টেস্ট করতে এখনই নিচে যেকোনো মেসেজ লিখে পাঠান (যেমন: "আজকের অর্ডার" বা "হেল্প")!_`;
 
-      await this.sock.sendMessage(ownerJid, { text: welcomeText });
+      const sent = await this.sock.sendMessage(ownerJid, { text: welcomeText });
+      if (sent?.key?.id) {
+        this.sentBotMessageIds.add(sent.key.id);
+      }
       console.log(`📨 [Baileys Web] Welcome greeting sent to owner chat: ${ownerJid}`);
       return true;
     } catch (err) {

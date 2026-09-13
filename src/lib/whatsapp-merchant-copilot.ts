@@ -60,7 +60,7 @@ export async function processMerchantWhatsAppMessage(
               t.delivery_inside_dhaka, t.delivery_outside_dhaka
        FROM tenants t 
        JOIN users u ON u.tenant_id = t.id 
-       WHERE t.id = '58818813-da76-4450-a8f9-494fb46ca3d7' LIMIT 1;`
+       ORDER BY t.created_at ASC LIMIT 1;`
     );
 
     if (fallbackTenant.rows.length > 0) {
@@ -281,6 +281,22 @@ ${channelsRes.rows.length > 0 ? channelsRes.rows.map(c => `- ${c.platform.toUppe
 
   try {
     const aiReply = await askGemini(trimmedMsg, systemContext);
+    if (!aiReply || aiReply.includes('এআই এপিআই কি কনফিগার করা নেই') || aiReply.includes('বর্তমানে এআই রেসপন্স তৈরিতে কিছুটা সমস্যা')) {
+      let fbText = `জি ${merchantName} ভাই, আপনার শপের বর্তমান হিসাব অনুযায়ী:\n`;
+      fbText += `• 📅 আজকের অর্ডার: *${stats.today_orders || 0} টি* (৳${stats.today_sales || 0})\n`;
+      fbText += `• 📦 সর্বমোট অর্ডার: *${stats.total_orders || 0} টি*\n`;
+      fbText += `• ⏳ রিভিউ পেন্ডিং: *${stats.pending_count || 0} টি*\n`;
+      fbText += `• 💰 সর্বমোট বিক্রি: *৳${stats.total_sales || 0}*\n\n`;
+      fbText += `💡 নির্দিষ্ট তথ্যের জন্য *অর্ডার*, *স্টক*, বা *বিক্রি* লিখে মেসেজ দিতে পারেন।`;
+      return {
+        isMerchant: true,
+        replyText: fbText,
+        merchantName,
+        storeName,
+        stats,
+      };
+    }
+
     return {
       isMerchant: true,
       replyText: aiReply,
