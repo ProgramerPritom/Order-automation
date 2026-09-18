@@ -11,6 +11,7 @@ interface ProcessMessageParams {
   customerName?: string;
   messageText: string;
   accessToken: string;
+  referralPostId?: string;
 }
 
 interface ProcessMessageResult {
@@ -26,7 +27,7 @@ interface ProcessMessageResult {
 export async function processCustomerMessage(
   params: ProcessMessageParams
 ): Promise<ProcessMessageResult> {
-  const { tenantId, channelId, platform, pageId, senderId, customerName, messageText, accessToken } = params;
+  const { tenantId, channelId, platform, pageId, senderId, customerName, messageText, accessToken, referralPostId } = params;
 
   try {
     // 1. Resolve or Create Conversation
@@ -196,6 +197,34 @@ export async function processCustomerMessage(
       return { success: false, error: 'GEMINI_API_KEY missing' };
     }
 
+    // Check if customer came from a specific mapped video post
+    let mappedProductContext = '';
+    if (referralPostId) {
+      try {
+        const mappedRes = await query(
+          `SELECT p.id, p.title, p.price, p.stock, p.sku, p.description
+           FROM post_product_mappings ppm
+           JOIN products p ON ppm.product_id = p.id
+           WHERE ppm.post_id = $1 AND ppm.tenant_id = $2
+           LIMIT 1;`,
+          [referralPostId, tenantId]
+        );
+        if (mappedRes.rows.length > 0) {
+          const mp = mappedRes.rows[0];
+          mappedProductContext = `
+[কাস্টমার ফেসবুকের যে নির্দিষ্ট ভিডিও/পোস্ট দেখে মেসেজ দিয়েছেন তার লিঙ্কড পণ্য (100% নিশ্চিত)]:
+- পণ্যের নাম: ${mp.title}
+- নির্ধারিত মূল্য: ৳${mp.price}
+- বর্তমান লাইভ স্টক: ${mp.stock} পিস
+- পণ্যের বিবরণ: ${mp.description || 'N/A'}
+(কাস্টমার যখন এই পণ্যটির তথ্য বা মূল্য জানতে চাইবে, নিশ্চিতভাবে এই লিঙ্কড পণ্যের মূল্য ও স্টকই জানাও।)
+`;
+        }
+      } catch (e) {
+        console.warn('Could not query post_product_mappings in sales engine:', e);
+      }
+    }
+
     const systemPrompt = `
 তুমি হলে "${shop.name}"-এর অত্যন্ত দক্ষ, অমায়িক এবং যত্নশীল এআই সেলস কনসালট্যান্ট। তোমার লক্ষ্য হলো কাস্টমারকে সঠিক তথ্য দিয়ে মুগ্ধ করা এবং কাস্টমার আগ্রহী হলে তাকে সাবলীলভাবে অর্ডার করার পথ দেখানো।
 
@@ -207,7 +236,7 @@ export async function processCustomerMessage(
 - কাস্টমার কেয়ার: ${shop.support_phone}
 - বিশেষ নিয়মাবলী: ${shop.custom_rules}
 - কথা বলার ধরন: ${shop.ai_tone || 'আন্তরিক, মার্জিত ও বিনয়ী'}
-
+${mappedProductContext}
 [পণ্য ক্যাটালগ]:
 ${catalogText || 'বর্তমানে কোনো পণ্য তালিকায় নেই'}
 

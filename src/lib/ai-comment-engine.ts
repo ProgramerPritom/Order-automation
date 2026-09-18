@@ -64,7 +64,25 @@ export async function processFacebookComment(params: ProcessCommentParams) {
       await saasRedis.set(shopCacheKey, shop, { ex: 3600 });
     }
 
-    // Fetch product catalog for accurate pricing & product answers
+    // Check if this post is mapped to a specific product
+    let mappedProduct: any = null;
+    try {
+      const mappedRes = await query(
+        `SELECT p.id, p.title, p.price, p.stock, p.category, p.description
+         FROM post_product_mappings ppm
+         JOIN products p ON ppm.product_id = p.id
+         WHERE ppm.post_id = $1 AND ppm.tenant_id = $2
+         LIMIT 1;`,
+        [postId, tenantId]
+      );
+      if (mappedRes.rows.length > 0) {
+        mappedProduct = mappedRes.rows[0];
+      }
+    } catch (e) {
+      console.warn('Could not query post_product_mappings:', e);
+    }
+
+    // Fetch product catalog for general fallback context
     const prodRes = await query(
       `SELECT title, price, stock, category FROM products WHERE tenant_id = $1 LIMIT 15;`,
       [tenantId]
@@ -72,6 +90,16 @@ export async function processFacebookComment(params: ProcessCommentParams) {
     const productCatalog = prodRes.rows
       .map((p) => `- ${p.title}: ৳${p.price} (স্টক: ${p.stock})`)
       .join('\n');
+
+    const mappedProductContext = mappedProduct
+      ? `
+[এই নির্দিষ্ট ভিডিও/পোস্টের লিংক করা মূল পণ্য (100% নিশ্চিত)]:
+- পণ্যের নাম: ${mappedProduct.title}
+- নির্ধারিত মূল্য: ৳${mappedProduct.price}
+- লাইভ স্টক: ${mappedProduct.stock} পিস
+- বিবরণ ও বৈশিষ্ট্য: ${mappedProduct.description || 'N/A'}
+(কাস্টমার এই পোস্টের পণ্যের দাম বা বিবরণ জানতে চাইলে উপরের এই নির্দিষ্ট পণ্যটির সঠিক তথ্য ও মূল্য জানাও।)`
+      : '';
 
     // 3. Generate Public AI Comment Reply with Gemini 2.5 Flash
     const apiKey = process.env.GEMINI_API_KEY;
@@ -84,7 +112,8 @@ export async function processFacebookComment(params: ProcessCommentParams) {
 
 [শপ পরিচিতি]: ${shop.about_shop}
 [ডেলিভারি চার্জ]: ঢাকার ভেতরে ৳${shop.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${shop.delivery_outside_dhaka || 150}
-[পণ্য তালিকা ও মূল্য]:
+${mappedProductContext}
+[দোকানের অন্যান্য পণ্য তালিকা ও মূল্য]:
 ${productCatalog || '- Building Blocks 60 Pcs: ৳850'}
 
 [পোস্টের বিষয়বস্তু]: "${postMessage || 'আমাদের নতুন কালেকশন'}"

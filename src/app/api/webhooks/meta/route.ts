@@ -88,6 +88,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (channel && senderId && messageText && channel.ai_active !== false) {
+          // Extract referral post_id if customer sent message from a Facebook Video Post or Ad CTA
+          const referralPostId =
+            messagingEvent.referral?.post_id ||
+            messagingEvent.postback?.referral?.post_id ||
+            messagingEvent.referral?.ref ||
+            undefined;
+
           // Enqueue into Resilient Redis FIFO Queue with auto-retry
           await enqueueWebhookJob('customer_message', {
             tenantId: channel.tenant_id,
@@ -95,6 +102,7 @@ export async function POST(req: NextRequest) {
             pageId: String(pageId),
             senderId: String(senderId),
             messageText,
+            referralPostId,
             accessToken: channel.access_token || process.env.META_PAGE_ACCESS_TOKEN || '',
           });
         }

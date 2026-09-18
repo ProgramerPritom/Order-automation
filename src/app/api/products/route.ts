@@ -7,8 +7,12 @@ export const dynamic = 'force-dynamic';
 
 async function getAuthTenant(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
+  const token =
+    (authHeader?.startsWith('Bearer ') && authHeader.split(' ')[1] !== 'null')
+      ? authHeader.split(' ')[1]
+      : req.cookies.get('accessToken')?.value || req.cookies.get('token')?.value;
+
+  if (!token) return null;
   return verifyAccessToken(token);
 }
 
@@ -26,7 +30,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('q');
-    const { cursor, limit } = parsePaginationParams(req.url, 15, 50);
+    const { cursor, limit } = parsePaginationParams(req.url, 15, 100);
     const decodedCursor = decodeCursor(cursor);
 
     // Total count for tenant

@@ -49,7 +49,11 @@ export default function LoginPage() {
       
       // Direct hard redirect guarantees no stale client state and fresh dashboard mount
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        if (data.user?.role === 'superadmin') {
+          window.location.href = '/admin';
+        } else {
+          window.location.href = '/dashboard';
+        }
       }, 300);
     } catch (err: any) {
       setError(err.message);
@@ -173,7 +177,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Quick Demo Fill Aid */}
+          {/* Quick Merchant Demo Fill */}
           <div className="mt-6 pt-6 border-t border-slate-100 text-center">
             <button
               type="button"
@@ -181,15 +185,22 @@ export default function LoginPage() {
               className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-indigo-600 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>ডেমো ক্রেডেনশিয়াল ফিল করুন (One-Click)</span>
+              <span>মার্চেন্ট ডেমো ক্রেডেনশিয়াল ফিল করুন (One-Click)</span>
             </button>
           </div>
 
-          <div className="mt-6 text-center text-xs text-slate-500">
-            নতুন ইউজার?{' '}
-            <Link href="/register" className="font-bold text-indigo-600 hover:underline">
-              ৭ দিনের ফ্রি একাউন্ট খুলুন
-            </Link>
+          <div className="mt-6 flex items-center justify-between text-xs text-slate-500">
+            <div>
+              নতুন ইউজার?{' '}
+              <Link href="/register" className="font-bold text-indigo-600 hover:underline">
+                ৭ দিনের ফ্রি একাউন্ট
+              </Link>
+            </div>
+            <div>
+              <Link href="/admin/login" className="text-slate-400 hover:text-purple-600 font-medium transition-colors">
+                এডমিন পোর্টাল &rarr;
+              </Link>
+            </div>
           </div>
 
         </div>

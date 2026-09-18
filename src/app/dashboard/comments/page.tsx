@@ -19,6 +19,11 @@ import {
   FileText,
   X,
   Share2,
+  Tag,
+  Link2,
+  Unlink,
+  PackageCheck,
+  Check,
 } from 'lucide-react';
 
 interface CommentItem {
@@ -33,6 +38,15 @@ interface CommentItem {
   created_at: string;
 }
 
+export interface LinkedProduct {
+  id: string;
+  title: string;
+  price: number;
+  stock: number;
+  image_url?: string;
+  sku?: string;
+}
+
 interface PostItem {
   id: string;
   post_id: string;
@@ -44,7 +58,17 @@ interface PostItem {
   updated_at: string;
   channel_name?: string;
   platform?: string;
+  linked_product?: LinkedProduct | null;
   comments: CommentItem[];
+}
+
+export interface ProductOption {
+  id: string;
+  title: string;
+  price: number;
+  stock: number;
+  image_url?: string;
+  sku?: string;
 }
 
 export default function CommentsPage() {
@@ -53,6 +77,11 @@ export default function CommentsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [platformFilter, setPlatformFilter] = useState<'all' | 'facebook' | 'instagram'>('all');
+
+  // Product Catalog for Video/Post Linking
+  const [catalogProducts, setCatalogProducts] = useState<ProductOption[]>([]);
+  const [mappingLoadingPostId, setMappingLoadingPostId] = useState<string | null>(null);
+  const [mappingToast, setMappingToast] = useState<string | null>(null);
 
   // Stats
   const [metrics, setMetrics] = useState({
@@ -77,10 +106,64 @@ export default function CommentsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 15;
 
+  const fetchCatalogProducts = async () => {
+    try {
+      const token = getSessionToken();
+      const res = await fetch('/api/products?limit=100', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products)) {
+        setCatalogProducts(data.products);
+      }
+    } catch (e) {
+      console.error('Failed to load store products for mapping:', e);
+    }
+  };
+
+  const handleMapProductToPost = async (postId: string, productId: string | null) => {
+    setMappingLoadingPostId(postId);
+    try {
+      const token = getSessionToken();
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          action: 'map_product',
+          postId,
+          productId: productId || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.post_id === postId ? { ...p, linked_product: data.linkedProduct } : p
+          )
+        );
+        if (selectedPost && selectedPost.post_id === postId) {
+          setSelectedPost((prev) => (prev ? { ...prev, linked_product: data.linkedProduct } : null));
+        }
+        setMappingToast(data.message || 'প্রোডাক্ট লিংক আপডেট হয়েছে');
+        setTimeout(() => setMappingToast(null), 3000);
+      } else {
+        alert(data.error || 'প্রোডাক্ট লিংক ব্যর্থ হয়েছে');
+      }
+    } catch (err: any) {
+      console.error('Map product error:', err);
+    } finally {
+      setMappingLoadingPostId(null);
+    }
+  };
+
   useEffect(() => {
     setCurrentPage(1);
     setCursorStack([null]);
     fetchComments(platformFilter, null, 1);
+    fetchCatalogProducts();
   }, [platformFilter]);
 
   const fetchComments = async (platform = platformFilter, cursorParam?: string | null, targetPage: number = 1) => {
@@ -331,7 +414,25 @@ export default function CommentsPage() {
                     {post.message || 'পোস্টের ক্যাপশন নেই (ছবি বা ভিডিও পোস্ট)'}
                   </p>
 
-                  <div className="mt-3 flex items-center justify-between text-[11px]">
+                  {/* Linked Product Status Badge */}
+                  {post.linked_product ? (
+                    <div className="mt-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-50 border border-purple-200/80 text-[10px] text-purple-900">
+                      <Tag className="w-3 h-3 text-purple-600 shrink-0" />
+                      <span className="font-extrabold truncate max-w-[120px]">{post.linked_product.title}</span>
+                      <span className="font-mono font-bold text-purple-700">৳{post.linked_product.price}</span>
+                      <span className="text-purple-300">|</span>
+                      <span className={post.linked_product.stock > 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                        {post.linked_product.stock > 0 ? `স্টক: ${post.linked_product.stock}` : 'স্টক ০'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-700/80 font-medium">
+                      <AlertCircle className="w-2.5 h-2.5 shrink-0 text-amber-500" />
+                      <span>প্রোডাক্ট লিংক নেই (ক্লিক করে লিংক করুন)</span>
+                    </div>
+                  )}
+
+                  <div className="mt-2.5 flex items-center justify-between text-[11px]">
                     <span className="inline-flex items-center gap-1 font-bold text-sky-700 bg-sky-100/70 px-2.5 py-0.5 rounded-full">
                       <MessageCircle className="w-3 h-3" />
                       <span>{post.comment_count} কমেন্ট</span>
@@ -398,6 +499,74 @@ export default function CommentsPage() {
                   </a>
                 )}
               </div>
+
+              {/* Product Linking Control Bar (Option 1: 1-Click Dropdown Linker) */}
+              <div className="px-5 py-3.5 bg-gradient-to-r from-purple-50/90 via-indigo-50/60 to-purple-50/40 border-b border-purple-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-purple-600 text-white shadow-sm shadow-purple-600/20 shrink-0">
+                    <Tag className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-purple-950">
+                        ভিডিও/পোস্টের সাথে প্রোডাক্ট লিংক করুন
+                      </span>
+                      {selectedPost.linked_product ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>লিংক সক্রিয়</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
+                          <span>প্রোডাক্ট আনট্যাগড</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-purple-800/80 mt-0.5">
+                      এই ভিডিও থেকে কমেন্ট বা মেসেজ আসলে এআই স্বয়ংক্রিয়ভাবে লিংক করা পণ্যের তথ্য ও দাম দিয়ে উত্তর দেবে।
+                    </p>
+                  </div>
+                </div>
+
+                {/* Dropdown Selector */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="relative">
+                    <select
+                      value={selectedPost.linked_product?.id || ''}
+                      onChange={(e) => handleMapProductToPost(selectedPost.post_id, e.target.value || null)}
+                      disabled={mappingLoadingPostId === selectedPost.post_id}
+                      className="text-xs font-bold bg-white text-slate-800 border border-purple-200 hover:border-purple-400 focus:ring-2 focus:ring-purple-500/20 rounded-xl px-3 py-2 pr-8 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="">-- কোনো প্রোডাক্ট লিংক নেই (আনলিঙ্ক) --</option>
+                      {catalogProducts.map((prod) => (
+                        <option key={prod.id} value={prod.id}>
+                          {prod.title} (৳{prod.price} | স্টক: {prod.stock})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedPost.linked_product && (
+                    <button
+                      type="button"
+                      title="লিংক রিমুভ করুন"
+                      onClick={() => handleMapProductToPost(selectedPost.post_id, null)}
+                      disabled={mappingLoadingPostId === selectedPost.post_id}
+                      className="p-2 rounded-xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors shadow-sm disabled:opacity-50"
+                    >
+                      <Unlink className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Toast Feedback for Product Mapping */}
+              {mappingToast && (
+                <div className="mx-5 mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{mappingToast}</span>
+                </div>
+              )}
 
               {/* Comments Stream */}
               <div className="flex-1 p-6 overflow-y-auto space-y-4">

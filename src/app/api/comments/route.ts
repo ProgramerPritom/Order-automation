@@ -58,6 +58,17 @@ export async function GET(req: NextRequest) {
       SELECT p.id, p.post_id, p.message, p.media_url, p.permalink_url, p.comment_count, 
              p.created_time, p.updated_at,
              c.channel_name, COALESCE(c.platform, 'facebook') as platform,
+             CASE 
+               WHEN pr.id IS NOT NULL THEN json_build_object(
+                 'id', pr.id,
+                 'title', pr.title,
+                 'price', pr.price,
+                 'stock', pr.stock,
+                 'image_url', pr.image_url,
+                 'sku', pr.sku
+               )
+               ELSE NULL 
+             END as linked_product,
              COALESCE(
                json_agg(
                  json_build_object(
@@ -76,6 +87,8 @@ export async function GET(req: NextRequest) {
       FROM facebook_posts p
       LEFT JOIN channels c ON p.channel_id = c.id
       LEFT JOIN facebook_comments cm ON p.post_id = cm.post_id
+      LEFT JOIN post_product_mappings ppm ON p.post_id = ppm.post_id AND p.tenant_id = ppm.tenant_id
+      LEFT JOIN products pr ON ppm.product_id = pr.id
       WHERE p.tenant_id = $1
     `;
     const params: any[] = [auth.tenantId];
@@ -95,7 +108,7 @@ export async function GET(req: NextRequest) {
       postsSql += ` AND (p.updated_at, p.id) < ($${params.length - 1}, $${params.length})`;
     }
 
-    postsSql += ` GROUP BY p.id, c.channel_name, c.platform ORDER BY p.updated_at DESC, p.id DESC LIMIT $${params.length + 1};`;
+    postsSql += ` GROUP BY p.id, c.channel_name, c.platform, pr.id, pr.title, pr.price, pr.stock, pr.image_url, pr.sku ORDER BY p.updated_at DESC, p.id DESC LIMIT $${params.length + 1};`;
     params.push(limit + 1);
 
     const res = await query(postsSql, params);
@@ -206,6 +219,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         message: 'Private message sent successfully to commenter',
+      });
+    }
+
+    if (action === 'map_product') {
+      const { postId, productId } = body;
+      if (!postId) {
+        return NextResponse.json({ error: 'postId is required' }, { status: 400 });
+      }
+
+      if (!productId) {
+        // Unlink post from product
+        await query(
+          `DELETE FROM post_product_mappings WHERE tenant_id = $1 AND post_id = $2;`,
+          [auth.tenantId, postId]
+        );
+        return NextResponse.json({
+          success: true,
+          message: 'প্রোডাক্ট লিংক সফলভাবে সরানো হয়েছে',
+          linkedProduct: null,
+        });
+      }
+
+      // Verify product belongs to current tenant
+      const prodRes = await query(
+        `SELECT id, title, price, stock, image_url, sku 
+         FROM products 
+         WHERE id = $1 AND tenant_id = $2;`,
+        [productId, auth.tenantId]
+      );
+
+      if (prodRes.rows.length === 0) {
+        return NextResponse.json({ error: 'Product not found for this store' }, { status: 404 });
+      }
+
+      const product = prodRes.rows[0];
+
+      // Upsert mapping into post_product_mappings
+      await query(
+        `INSERT INTO post_product_mappings (tenant_id, post_id, product_id, is_primary, updated_at)
+         VALUES ($1, $2, $3, TRUE, NOW())
+         ON CONFLICT (tenant_id, post_id)
+         DO UPDATE SET product_id = $3, updated_at = NOW();`,
+        [auth.tenantId, postId, productId]
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `"${product.title}" সফলভাবে এই পোস্টের সাথে লিংক করা হয়েছে`,
+        linkedProduct: product,
       });
     }
 
