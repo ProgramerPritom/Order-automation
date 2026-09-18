@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       await query(
         `INSERT INTO facebook_posts (tenant_id, channel_id, post_id, message, media_url, permalink_url, created_time, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-         ON CONFLICT (post_id)
+         ON CONFLICT (tenant_id, post_id)
          DO UPDATE SET 
            message = COALESCE(NULLIF(EXCLUDED.message, ''), facebook_posts.message),
            media_url = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
       await query(
         `INSERT INTO facebook_posts (tenant_id, channel_id, post_id, message, media_url, permalink_url, created_time, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-         ON CONFLICT (post_id)
+         ON CONFLICT (tenant_id, post_id)
          DO UPDATE SET 
            message = COALESCE(NULLIF(EXCLUDED.message, ''), facebook_posts.message),
            media_url = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
