@@ -3,6 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import PaginationControl from '@/components/ui/PaginationControl';
 import { getSessionToken } from '@/lib/session';
+import { useAppDispatch, useAppSelector } from '@/lib/store/hooks';
+import {
+  fetchPosts as fetchReduxPosts,
+  syncFacebookFeed,
+  updatePostProductMapping,
+  setSelectedPostId,
+} from '@/lib/store/slices/postsSlice';
+import { toast } from 'sonner';
 import {
   MessageCircle,
   Sparkles,
@@ -24,6 +32,7 @@ import {
   Unlink,
   PackageCheck,
   Check,
+  Film,
 } from 'lucide-react';
 
 interface CommentItem {
@@ -72,10 +81,14 @@ export interface ProductOption {
 }
 
 export default function CommentsPage() {
+  const dispatch = useAppDispatch();
+  const reduxPostsState = useAppSelector((state) => state.posts);
+
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [selectedPost, setSelectedPost] = useState<PostItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isSyncingFeed, setIsSyncingFeed] = useState(false);
   const [platformFilter, setPlatformFilter] = useState<'all' | 'facebook' | 'instagram'>('all');
 
   // Product Catalog for Video/Post Linking
@@ -139,6 +152,7 @@ export default function CommentsPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        dispatch(updatePostProductMapping({ postId, linkedProduct: data.linkedProduct }));
         setPosts((prev) =>
           prev.map((p) =>
             p.post_id === postId ? { ...p, linked_product: data.linkedProduct } : p
@@ -147,24 +161,49 @@ export default function CommentsPage() {
         if (selectedPost && selectedPost.post_id === postId) {
           setSelectedPost((prev) => (prev ? { ...prev, linked_product: data.linkedProduct } : null));
         }
-        setMappingToast(data.message || 'প্রোডাক্ট লিংক আপডেট হয়েছে');
-        setTimeout(() => setMappingToast(null), 3000);
+        toast.success(data.message || 'প্রোডাক্ট লিংক সফলভাবে আপডেট হয়েছে!');
       } else {
-        alert(data.error || 'প্রোডাক্ট লিংক ব্যর্থ হয়েছে');
+        toast.error(data.error || 'প্রোডাক্ট লিংক ব্যর্থ হয়েছে');
       }
     } catch (err: any) {
       console.error('Map product error:', err);
+      toast.error('প্রোডাক্ট লিংক করার সময় সমস্যা হয়েছে।');
     } finally {
       setMappingLoadingPostId(null);
     }
   };
 
+  // Sync with Redux state if populated
+  useEffect(() => {
+    if (reduxPostsState.posts.length > 0) {
+      setPosts(reduxPostsState.posts);
+      setSelectedPost((curr) => {
+        if (curr) {
+          const matched = reduxPostsState.posts.find((p) => p.post_id === curr.post_id);
+          return matched || reduxPostsState.posts[0];
+        }
+        return reduxPostsState.posts[0];
+      });
+      setMetrics((prev) => ({
+        ...prev,
+        totalPosts: reduxPostsState.totalCount || reduxPostsState.posts.length,
+      }));
+      setLoading(false);
+    }
+  }, [reduxPostsState.posts, reduxPostsState.totalCount]);
+
   useEffect(() => {
     setCurrentPage(1);
     setCursorStack([null]);
+    const token = getSessionToken();
+    if (token) {
+      if (!reduxPostsState.isLoaded) {
+        dispatch(fetchReduxPosts({ token }));
+      }
+    }
     fetchComments(platformFilter, null, 1);
     fetchCatalogProducts();
-  }, [platformFilter]);
+  }, [platformFilter, dispatch]);
 
   const fetchComments = async (platform = platformFilter, cursorParam?: string | null, targetPage: number = 1) => {
     setLoading(true);
@@ -277,6 +316,32 @@ export default function CommentsPage() {
     }
   };
 
+  const handleSyncFacebookPosts = async () => {
+    setIsSyncingFeed(true);
+    try {
+      const token = getSessionToken();
+      if (!token) {
+        toast.error('লগইন সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার লগইন করুন।');
+        return;
+      }
+      const res = await dispatch(syncFacebookFeed({ token })).unwrap();
+      toast.success(res.message || 'ফেসবুক পেজ থেকে পোস্ট সফলভাবে সিঙ্ক করা হয়েছে!');
+      if (res.posts) {
+        setPosts(res.posts);
+        if (res.posts.length > 0) {
+          setSelectedPost(res.posts[0]);
+        }
+        setMetrics((m) => ({ ...m, totalPosts: res.totalCount || res.posts.length }));
+      }
+    } catch (err: any) {
+      toast.error('সিঙ্ক ব্যর্থ হয়েছে', {
+        description: err || 'ফেসবুক থেকে পোস্ট সিঙ্ক করা সম্ভব হয়নি। Social Channels থেকে পেজ কানেকশন চেক করুন।',
+      });
+    } finally {
+      setIsSyncingFeed(false);
+    }
+  };
+
   return (
     <div className="space-y-6 w-full">
       {/* Header */}
@@ -284,22 +349,37 @@ export default function CommentsPage() {
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold mb-2">
             <Sparkles className="w-3.5 h-3.5 text-sky-500" />
-            <span>Omnichannel Comments & AI Auto-Reply Hub</span>
+            <span>Facebook & Instagram Feed + AI RAG Product Linker</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900">পোস্ট ও কমেন্ট অটোমেশন</h1>
+          <h1 className="text-2xl font-black text-slate-900">ফেসবুক পোস্ট, ভিডিও ও কমেন্ট হাব</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            ফেসবুক ও ইনস্টাগ্রাম পোস্টের কমেন্টগুলো এআই স্বয়ংক্রিয়ভাবে উত্তর দিচ্ছে। প্রয়োজনে ১ ক্লিকে গ্রাহকের ইনবক্সে সরাসরি মেসেজ পাঠান।
+            ফেসবুক পেজের লাইভ পোস্ট ও ভিডিও দেখুন, সরাসরি প্রোডাক্ট লিংক করুন এবং এআই অটো-রিপ্লাই পরিচালনা করুন।
           </p>
         </div>
 
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-sm transition-all"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span>রিফ্রেশ করুন</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Sync Live Feed from Facebook Graph API */}
+          <button
+            onClick={handleSyncFacebookPosts}
+            disabled={isSyncingFeed || reduxPostsState.isSyncing}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm shadow-blue-500/20 transition-all disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncingFeed || reduxPostsState.isSyncing ? 'animate-spin' : ''}`} />
+            <span>
+              {isSyncingFeed || reduxPostsState.isSyncing ? 'ফেসবুক থেকে সিঙ্ক হচ্ছে...' : 'ফেসবুক থেকে পোস্ট রিফ্রেশ করুন'}
+            </span>
+          </button>
+
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl font-bold text-xs text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-sm transition-all"
+            title="ডাটাবেজ রিফ্রেশ"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">রিফ্রেশ</span>
+          </button>
+        </div>
       </div>
 
       {/* Platform Switcher Tabs */}

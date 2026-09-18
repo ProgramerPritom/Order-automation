@@ -25,6 +25,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  Film,
 } from 'lucide-react';
 
 import { useAppDispatch, useAppSelector } from '@/lib/store/hooks';
@@ -175,9 +176,9 @@ export default function DashboardLayout({
       icon: <Share2 className="w-5 h-5" />,
     },
     {
-      name: 'পোস্ট ও কমেন্টস',
+      name: 'পোস্ট ও ভিডিও (Feed)',
       href: '/dashboard/comments',
-      icon: <MessageCircle className="w-5 h-5 text-sky-400" />,
+      icon: <Film className="w-5 h-5 text-sky-400" />,
     },
     ...(isSuperAdmin
       ? [

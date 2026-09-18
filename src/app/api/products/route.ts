@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     // Paginated query
     let sql = `
-      SELECT id, title, description, category, price, stock, sku, image_url, is_active, 
+      SELECT id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge,
              (embedding IS NOT NULL) as has_vector, created_at 
       FROM products 
       WHERE tenant_id = $1
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { title, description, category, price, stock, sku, image_url } = body;
+    const { title, description, category, price, stock, sku, image_url, rag_knowledge } = body;
 
     if (!title || price === undefined) {
       return NextResponse.json(
@@ -123,9 +123,9 @@ export async function POST(req: NextRequest) {
     const vectorString = `[${vector1536.join(',')}]`;
 
     const res = await query(
-      `INSERT INTO products (tenant_id, title, description, category, price, stock, sku, image_url, embedding)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector)
-       RETURNING id, title, description, category, price, stock, sku, image_url, is_active, created_at;`,
+      `INSERT INTO products (tenant_id, title, description, category, price, stock, sku, image_url, embedding, rag_knowledge)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10)
+       RETURNING id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge, created_at;`,
       [
         auth.tenantId,
         title,
@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
         sku || `SKU-${Date.now().toString().slice(-6)}`,
         image_url || 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?auto=format&fit=crop&w=400&q=80',
         vectorString,
+        rag_knowledge || null,
       ]
     );
 

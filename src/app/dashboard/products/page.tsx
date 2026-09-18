@@ -15,6 +15,7 @@ import {
   Tag,
   Layers,
   Trash2,
+  Brain,
 } from 'lucide-react';
 
 interface Product {
@@ -28,6 +29,7 @@ interface Product {
   image_url: string;
   is_active: boolean;
   has_vector: boolean;
+  rag_knowledge?: string | null;
 }
 
 export default function ProductsPage() {
@@ -43,7 +45,14 @@ export default function ProductsPage() {
   const [price, setPrice] = useState('2150');
   const [stock, setStock] = useState('25');
   const [description, setDescription] = useState('');
+  const [ragKnowledge, setRagKnowledge] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Product RAG Modal State
+  const [ragModalOpen, setRagModalOpen] = useState(false);
+  const [selectedProductForRag, setSelectedProductForRag] = useState<Product | null>(null);
+  const [ragKnowledgeText, setRagKnowledgeText] = useState('');
+  const [savingRag, setSavingRag] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -104,7 +113,7 @@ export default function ProductsPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = getSessionToken();
       const res = await fetch('/api/products', {
         method: 'POST',
         headers: {
@@ -117,6 +126,7 @@ export default function ProductsPage() {
           price,
           stock,
           description,
+          rag_knowledge: ragKnowledge.trim() || null,
         }),
       });
       const data = await res.json();
@@ -125,6 +135,7 @@ export default function ProductsPage() {
         setModalOpen(false);
         setTitle('');
         setDescription('');
+        setRagKnowledge('');
         toast.success('নতুন পণ্য সফলভাবে যুক্ত হয়েছে!');
       } else {
         toast.error(data.error || 'পণ্য যুক্ত করতে ব্যর্থ হয়েছে।');
@@ -134,6 +145,47 @@ export default function ProductsPage() {
       toast.error('পণ্য যুক্ত করতে সমস্যা হয়েছে।');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openRagModal = (product: Product) => {
+    setSelectedProductForRag(product);
+    setRagKnowledgeText(product.rag_knowledge || '');
+    setRagModalOpen(true);
+  };
+
+  const handleSaveRagKnowledge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProductForRag) return;
+    setSavingRag(true);
+    try {
+      const token = getSessionToken();
+      const res = await fetch(`/api/products/${selectedProductForRag.id}/rag`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          rag_knowledge: ragKnowledgeText.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save RAG knowledge');
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === selectedProductForRag.id
+            ? { ...p, rag_knowledge: ragKnowledgeText.trim() || null }
+            : p
+        )
+      );
+      toast.success('🎉 পণ্যটির এআই র্যাক (RAG) নলেজ সফলভাবে সংরক্ষিত হয়েছে!');
+      setRagModalOpen(false);
+    } catch (err: any) {
+      toast.error('র্যাক নলেজ সেভ করতে সমস্যা হয়েছে', { description: err.message });
+    } finally {
+      setSavingRag(false);
     }
   };
 
@@ -232,7 +284,7 @@ export default function ProductsPage() {
                 <th className="py-3.5 px-6">SKU কোড</th>
                 <th className="py-3.5 px-6">মূল্য</th>
                 <th className="py-3.5 px-6">স্টক লেভেল</th>
-                <th className="py-3.5 px-6">RAG ভেক্টর স্ট্যাটাস</th>
+                <th className="py-3.5 px-6">এআই র্যাক নলেজ (RAG)</th>
                 <th className="py-3.5 px-6 text-right">অ্যাকশন</th>
               </tr>
             </thead>
@@ -271,10 +323,24 @@ export default function ProductsPage() {
                     )}
                   </td>
                   <td className="py-4 px-6">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                      <Sparkles className="w-3 h-3 text-amber-500" />
-                      <span>pgvector Synced</span>
-                    </span>
+                    {product.rag_knowledge ? (
+                      <button
+                        onClick={() => openRagModal(product)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-all shadow-xs"
+                        title="র্যাক নলেজ দেখুন বা এডিট করুন"
+                      >
+                        <Brain className="w-3.5 h-3.5 text-purple-600" />
+                        <span>✓ র্যাক সক্রিয়</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => openRagModal(product)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-bold bg-slate-50 hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-dashed border-slate-300 hover:border-purple-300 transition-all"
+                      >
+                        <Brain className="w-3.5 h-3.5 text-slate-400" />
+                        <span>+ র্যাক নলেজ দিন</span>
+                      </button>
+                    )}
                   </td>
                   <td className="py-4 px-6 text-right">
                     <button
@@ -315,7 +381,7 @@ export default function ProductsPage() {
       {/* Add Product Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-black text-slate-900">নতুন পণ্য যুক্ত করুন</h3>
             <p className="text-xs text-slate-500 mt-1">
               পণ্য সেভ হওয়ামাত্রই এআই স্বয়ংক্রিয়ভাবে RAG এম্বেডিং ভেক্টর তৈরি করে নিবে
@@ -381,14 +447,28 @@ export default function ProductsPage() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  বিবরণ (Description - RAG নলেজবেসের জন্য গুরুত্বপূর্ণ)
+                  সংক্ষিপ্ত বিবরণ (Short Description)
+                </label>
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="পণ্যটির মূল ক্যাটাগরি ও সংক্ষিপ্ত তথ্য..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-purple-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <Brain className="w-3.5 h-3.5 text-purple-600" />
+                  <span>এআই র্যাক নলেজ (RAG Knowledge - ঐচ্ছিক)</span>
                 </label>
                 <textarea
                   rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="ফ্যাব্রিক, সাইজ ও কালারের বিস্তারিত বিবরণ লিখুন..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
+                  value={ragKnowledge}
+                  onChange={(e) => setRagKnowledge(e.target.value)}
+                  placeholder="সাইজ চার্ট, কাপড়ের মেটেরিয়াল, ব্যবহার নির্দেশিকা, ওয়ারেন্টি বা কাস্টমার এফএকিউ ইত্যাদি বিস্তারিত লিখুন..."
+                  className="w-full p-2.5 rounded-xl border border-purple-200 bg-purple-50/40 font-medium text-slate-900"
                 />
               </div>
 
@@ -406,6 +486,87 @@ export default function ProductsPage() {
                   className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
                 >
                   {submitting ? 'ভেক্টর সিঙ্ক হচ্ছে...' : 'পণ্য সেভ করুন'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Product RAG Knowledge Modal */}
+      {ragModalOpen && selectedProductForRag && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    এআই র্যাক নলেজবেস (Product RAG Knowledge)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    পণ্য: <strong className="text-purple-700">{selectedProductForRag.title}</strong> (SKU: {selectedProductForRag.sku})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRagModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Guidance Alert */}
+            <div className="mt-4 p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200/80 text-purple-950 text-xs space-y-1">
+              <p className="font-bold flex items-center gap-1.5 text-purple-900">
+                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                <span>এখানে কী কী তথ্য দিলে এআই সবচেয়ে ভালো উত্তর দিবে?</span>
+              </p>
+              <ul className="list-disc list-inside text-[11px] text-purple-900/80 space-y-0.5 leading-relaxed">
+                <li>উপাদান ও কোয়ালিটি (যেমন: ১০০% অর্গানিক সুতি, প্রিমিয়াম ফেব্রিক)</li>
+                <li>সাইজ চার্ট ও মাপ (যেমন: M=৩৮, L=৪০, XL=৪২)</li>
+                <li>ব্যবহার বিধি, ওয়াশিং নির্দেশনা ও যত্ন নেওয়ার নিয়ম</li>
+                <li>ওয়ারেন্টি বা গ্যারান্টি থাকলে তার মেয়াদ ও নিয়মাবলী</li>
+                <li>কাস্টমারদের সচরাচর জিজ্ঞাসিত প্রশ্ন ও উত্তর (FAQ)</li>
+              </ul>
+            </div>
+
+            <form onSubmit={handleSaveRagKnowledge} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  পণ্যটির বিস্তারিত এআই র্যাক ইনফরমেশন (RAG Details)
+                </label>
+                <textarea
+                  rows={8}
+                  value={ragKnowledgeText}
+                  onChange={(e) => setRagKnowledgeText(e.target.value)}
+                  placeholder="যেমন:
+- ফেব্রিক: ১০০% কম্বড কটন
+- সাইজ চার্ট: M (চেস্ট ৩৮, দৈর্ঘ্য ২৮), L (চেস্ট ৪০, দৈর্ঘ্য ২৯), XL (চেস্ট ৪২, দৈর্ঘ্য ৩০)
+- ধোয়ার নিয়ম: ঠান্ডা পানিতে ওয়াশ করুন, কড়া রোদে শুকাবেন না
+- কালার গ্যারান্টি: পাকা রঙের নিশ্চয়তা"
+                  className="w-full p-3.5 rounded-2xl border border-slate-200 font-medium text-slate-900 leading-relaxed focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setRagModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingRag}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-sm shadow-purple-500/20 disabled:opacity-60"
+                >
+                  <Brain className="w-4 h-4" />
+                  <span>{savingRag ? 'সংরক্ষিত হচ্ছে...' : 'র্যাক নলেজ সংরক্ষণ করুন'}</span>
                 </button>
               </div>
             </form>

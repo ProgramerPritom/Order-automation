@@ -54,12 +54,12 @@ export async function processFacebookComment(params: ProcessCommentParams) {
         [tenantId]
       );
       shop = tenantRes.rows[0] || {
-        name: 'Little Joys',
-        about_shop: 'বাচ্চাদের খেলনা ও শিক্ষণীয় সামগ্রীর বিশ্বস্ত শপ',
+        name: 'আমাদের শপ',
+        about_shop: 'একটি বিশ্বস্ত অনলাইন শপ',
         delivery_inside_dhaka: 80,
         delivery_outside_dhaka: 150,
-        return_policy: '৭ দিনের সহজ রিটার্ন',
-        support_phone: '০১৭০০০০০০০০',
+        return_policy: '৭ দিনের সহজ রিটার্ন পলিসি',
+        support_phone: '',
       };
       await saasRedis.set(shopCacheKey, shop, { ex: 3600 });
     }
@@ -68,7 +68,7 @@ export async function processFacebookComment(params: ProcessCommentParams) {
     let mappedProduct: any = null;
     try {
       const mappedRes = await query(
-        `SELECT p.id, p.title, p.price, p.stock, p.category, p.description
+        `SELECT p.id, p.title, p.price, p.stock, p.category, p.description, p.rag_knowledge
          FROM post_product_mappings ppm
          JOIN products p ON ppm.product_id = p.id
          WHERE ppm.post_id = $1 AND ppm.tenant_id = $2
@@ -97,8 +97,9 @@ export async function processFacebookComment(params: ProcessCommentParams) {
 - পণ্যের নাম: ${mappedProduct.title}
 - নির্ধারিত মূল্য: ৳${mappedProduct.price}
 - লাইভ স্টক: ${mappedProduct.stock} পিস
-- বিবরণ ও বৈশিষ্ট্য: ${mappedProduct.description || 'N/A'}
-(কাস্টমার এই পোস্টের পণ্যের দাম বা বিবরণ জানতে চাইলে উপরের এই নির্দিষ্ট পণ্যটির সঠিক তথ্য ও মূল্য জানাও।)`
+- বিবরণ: ${mappedProduct.description || 'N/A'}
+${mappedProduct.rag_knowledge ? `- এআই র্যাক নলেজ (RAG Knowledge / স্পেক্স / উপাদান / নির্দেশিকা): ${mappedProduct.rag_knowledge}` : ''}
+(কাস্টমার এই পোস্টের পণ্যের দাম, সাইজ, উপাদান বা বিবরণ জানতে চাইলে উপরের এই নির্দিষ্ট পণ্যটির সঠিক তথ্য দেখে উত্তর জানাও।)`
       : '';
 
     // 3. Generate Public AI Comment Reply with Gemini 2.5 Flash

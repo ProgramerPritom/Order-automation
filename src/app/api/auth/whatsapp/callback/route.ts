@@ -50,21 +50,17 @@ export async function GET(req: NextRequest) {
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
 
-    let userAccessToken = tokenData.access_token;
-
-    // If token exchange failed or appSecret is mock, fallback to existing META_ACCESS_TOKEN
-    if (!tokenRes.ok || !userAccessToken) {
-      console.warn('Meta Token exchange returned error for WhatsApp, using fallback:', tokenData);
-      userAccessToken = process.env.META_ACCESS_TOKEN;
-    }
-
-    if (!userAccessToken) {
+    if (!tokenRes.ok || !tokenData.access_token) {
+      const metaErrMsg = tokenData?.error?.message || 'Meta token exchange failed';
+      console.warn('Meta Token exchange returned error for WhatsApp:', tokenData);
       return NextResponse.redirect(
         `${returnOrigin}/dashboard/channels?error=Token_Exchange_Failed&details=${encodeURIComponent(
-          tokenData?.error?.message || 'Meta token exchange failed'
-        )}`
+          `মেটা টোকেন এক্সচেঞ্জ ব্যর্থ হয়েছে (${metaErrMsg})। অনুগ্রহ করে ভেরিফাই করুন META_APP_SECRET ও রিডাইরেক্ট ইউআরআই ঠিক আছে কিনা।`
+        )}&platform=whatsapp`
       );
     }
+
+    const userAccessToken = tokenData.access_token;
 
     // 2. Discover WhatsApp Business Accounts (WABA) & Phone Numbers
     let connectedPhones: Array<{ id: string; display_phone_number: string; verified_name?: string }> = [];
@@ -128,50 +124,46 @@ export async function GET(req: NextRequest) {
     }
 
     // 3. Save Discovered Phone Numbers to Database
-    if (connectedPhones.length > 0) {
-      for (const phone of connectedPhones) {
-        const cleanPhone = (phone.display_phone_number || phone.id).replace(/[\s\-\+\(\)]/g, '');
-        const phoneId = phone.id;
-        const name = phone.verified_name || `WhatsApp (+${cleanPhone})`;
-
-        await query(
-          `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
-           VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
-           ON CONFLICT (platform, channel_identifier)
-           DO UPDATE SET 
-             channel_name = EXCLUDED.channel_name,
-             access_token = EXCLUDED.access_token,
-             tenant_id = EXCLUDED.tenant_id,
-             ai_active = TRUE,
-             webhook_verified = TRUE,
-             updated_at = NOW();`,
-          [tenantId, phoneId, name, userAccessToken]
-        );
-      }
-
-      const firstPhone = connectedPhones[0];
+    if (connectedPhones.length === 0) {
       return NextResponse.redirect(
-        `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
-          firstPhone.verified_name || firstPhone.display_phone_number
+        `${returnOrigin}/dashboard/channels?error=No_WhatsApp_Account_Found&details=${encodeURIComponent(
+          'আপনার মেটা অ্যাকাউন্টে কোনো অনুমোদিত বা ভেরিফায়েড হোয়াটসঅ্যাপ বিজনেস অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে মেটা বিজনেস ম্যানেজারে হোয়াটসঅ্যাপ নম্বর যুক্ত করে আবার চেষ্টা করুন।'
         )}&platform=whatsapp`
       );
     }
 
-    // Fallback: If Meta did not return a phone number yet (e.g. user just completed onboarding),
-    // we connect the tenant's primary shop WhatsApp number or Little Toys
-    const existingWa = await query(
-      `SELECT channel_identifier, channel_name FROM channels WHERE tenant_id = $1 AND platform = 'whatsapp' LIMIT 1;`,
-      [tenantId]
-    );
+    for (const phone of connectedPhones) {
+      const cleanPhone = (phone.display_phone_number || phone.id).replace(/[\s\-\+\(\)]/g, '');
+      const phoneId = phone.id;
+      const name = phone.verified_name || `WhatsApp (+${cleanPhone})`;
 
-    const waName = existingWa.rows[0]?.channel_name || 'WhatsApp Business';
+      await query(
+        `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
+         VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
+         ON CONFLICT (platform, channel_identifier)
+         DO UPDATE SET 
+           channel_name = EXCLUDED.channel_name,
+           access_token = EXCLUDED.access_token,
+           tenant_id = EXCLUDED.tenant_id,
+           ai_active = TRUE,
+           webhook_verified = TRUE,
+           updated_at = NOW();`,
+        [tenantId, phoneId, name, userAccessToken]
+      );
+    }
+
+    const firstPhone = connectedPhones[0];
     return NextResponse.redirect(
-      `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(waName)}&platform=whatsapp`
+      `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
+        firstPhone.verified_name || firstPhone.display_phone_number
+      )}&platform=whatsapp`
     );
   } catch (error: any) {
     console.error('WhatsApp OAuth callback unexpected error:', error);
     return NextResponse.redirect(
-      `${returnOrigin}/dashboard/channels?error=WhatsApp_Connect_Failed&details=${encodeURIComponent(error.message)}`
+      `${returnOrigin}/dashboard/channels?error=WhatsApp_Connect_Failed&details=${encodeURIComponent(
+        error.message || 'একটি অপ্রত্যাশিত সমস্যা হয়েছে।'
+      )}&platform=whatsapp`
     );
   }
 }

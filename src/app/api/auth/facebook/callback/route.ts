@@ -56,12 +56,17 @@ export async function GET(req: NextRequest) {
     // CASE A: WHATSAPP CLOUD API ONBOARDING
     // =========================================================================
     if (platform === 'whatsapp') {
-      let userAccessToken = tokenData.access_token;
-      if (!tokenRes.ok || !userAccessToken) {
-        console.warn('Meta Token exchange returned error for WhatsApp, using fallback:', tokenData);
-        userAccessToken = process.env.META_ACCESS_TOKEN;
+      if (!tokenRes.ok || !tokenData.access_token) {
+        const metaErrMsg = tokenData?.error?.message || 'Meta OAuth token exchange failed';
+        console.warn('Meta Token exchange returned error for WhatsApp:', tokenData);
+        return NextResponse.redirect(
+          `${returnOrigin}/dashboard/channels?error=Token_Exchange_Failed&details=${encodeURIComponent(
+            `মেটা টোকেন এক্সচেঞ্জ ব্যর্থ হয়েছে (${metaErrMsg})। অনুগ্রহ করে অ্যাপ ক্রেডেনশিয়াল বা রিডাইরেক্ট ইউআরআই সেটিংস পরীক্ষা করুন।`
+          )}&platform=whatsapp`
+        );
       }
 
+      const userAccessToken = tokenData.access_token;
       let connectedPhones: Array<{ id: string; display_phone_number: string; verified_name?: string }> = [];
 
       // 1. Search owned WABAs through businesses
@@ -117,60 +122,39 @@ export async function GET(req: NextRequest) {
       }
 
       // 3. Upsert discovered WhatsApp channels
-      if (connectedPhones.length > 0) {
-        for (const phone of connectedPhones) {
-          const cleanPhone = (phone.display_phone_number || phone.id).replace(/[\s\-\+\(\)]/g, '');
-          const phoneId = phone.id;
-          const name = phone.verified_name || `WhatsApp (+${cleanPhone})`;
-
-          await query(
-            `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
-             VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
-             ON CONFLICT (platform, channel_identifier)
-             DO UPDATE SET 
-               channel_name = EXCLUDED.channel_name,
-               access_token = EXCLUDED.access_token,
-               tenant_id = EXCLUDED.tenant_id,
-               ai_active = TRUE,
-               webhook_verified = TRUE,
-               updated_at = NOW();`,
-            [tenantId, phoneId, name, userAccessToken]
-          );
-        }
-
-        const firstPhone = connectedPhones[0];
+      if (connectedPhones.length === 0) {
         return NextResponse.redirect(
-          `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
-            firstPhone.verified_name || firstPhone.display_phone_number
+          `${returnOrigin}/dashboard/channels?error=No_WhatsApp_Account_Found&details=${encodeURIComponent(
+            'আপনার মেটা অ্যাকাউন্টে কোনো অনুমোদিত বা ভেরিফায়েড হোয়াটসঅ্যাপ বিজনেস অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে মেটা বিজনেস ম্যানেজারে হোয়াটসঅ্যাপ নম্বর যুক্ত করে আবার চেষ্টা করুন।'
           )}&platform=whatsapp`
         );
       }
 
-      // 4. Default / Fallback WhatsApp connection for tenant
-      const existingWa = await query(
-        `SELECT channel_identifier, channel_name FROM channels WHERE tenant_id = $1 AND platform = 'whatsapp' LIMIT 1;`,
-        [tenantId]
-      );
+      for (const phone of connectedPhones) {
+        const cleanPhone = (phone.display_phone_number || phone.id).replace(/[\s\-\+\(\)]/g, '');
+        const phoneId = phone.id;
+        const name = phone.verified_name || `WhatsApp (+${cleanPhone})`;
 
-      const waName = existingWa.rows[0]?.channel_name || 'Little Toys (WhatsApp)';
-      const waIdent = existingWa.rows[0]?.channel_identifier || '8801767026831';
+        await query(
+          `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
+           VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
+           ON CONFLICT (platform, channel_identifier)
+           DO UPDATE SET 
+             channel_name = EXCLUDED.channel_name,
+             access_token = EXCLUDED.access_token,
+             tenant_id = EXCLUDED.tenant_id,
+             ai_active = TRUE,
+             webhook_verified = TRUE,
+             updated_at = NOW();`,
+          [tenantId, phoneId, name, userAccessToken]
+        );
+      }
 
-      await query(
-        `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
-         VALUES ($1, 'whatsapp', $2, $3, $4, TRUE, TRUE, NOW())
-         ON CONFLICT (platform, channel_identifier)
-         DO UPDATE SET 
-           channel_name = EXCLUDED.channel_name,
-           access_token = EXCLUDED.access_token,
-           tenant_id = EXCLUDED.tenant_id,
-           ai_active = TRUE,
-           webhook_verified = TRUE,
-           updated_at = NOW();`,
-        [tenantId, waIdent, waName, userAccessToken || process.env.META_ACCESS_TOKEN]
-      );
-
+      const firstPhone = connectedPhones[0];
       return NextResponse.redirect(
-        `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(waName)}&platform=whatsapp`
+        `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
+          firstPhone.verified_name || firstPhone.display_phone_number
+        )}&platform=whatsapp`
       );
     }
 
@@ -181,30 +165,10 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok || !tokenData.access_token) {
       const metaErrMsg = tokenData?.error?.message || 'Meta token exchange failed';
       console.warn('Meta Token exchange returned error:', tokenData);
-
-      // Auto-fallback: If we have pre-verified META_ACCESS_TOKEN for Little Joys, link it automatically!
-      if (process.env.META_ACCESS_TOKEN) {
-        await query(
-          `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
-           VALUES ($1, 'facebook', '1374129259109200', 'Little Joys', $2, TRUE, TRUE, NOW())
-           ON CONFLICT (platform, channel_identifier)
-           DO UPDATE SET 
-             channel_name = 'Little Joys',
-             access_token = EXCLUDED.access_token,
-             tenant_id = EXCLUDED.tenant_id,
-             ai_active = TRUE,
-             webhook_verified = TRUE,
-             updated_at = NOW();`,
-          [tenantId, process.env.META_ACCESS_TOKEN]
-        );
-
-        return NextResponse.redirect(
-          `${returnOrigin}/dashboard/channels?connected=true&channel_name=Little%20Joys&count=1&auto_linked=true`
-        );
-      }
-
       return NextResponse.redirect(
-        `${returnOrigin}/dashboard/channels?error=Token_Exchange_Failed&details=${encodeURIComponent(metaErrMsg)}`
+        `${returnOrigin}/dashboard/channels?error=Token_Exchange_Failed&details=${encodeURIComponent(
+          `মেটা টোকেন এক্সচেঞ্জ ব্যর্থ হয়েছে (${metaErrMsg})। অনুগ্রহ করে ভেরিফাই করুন META_APP_SECRET সঠিক আছে কিনা এবং মেটা ড্যাশবোর্ডে ভ্যালিড রিডাইরেক্ট ইউআরআই সেভ করা হয়েছে কিনা।`
+        )}&platform=facebook`
       );
     }
 
@@ -217,23 +181,12 @@ export async function GET(req: NextRequest) {
     const pagesData = await pagesRes.json();
     const pages = pagesData.data || [];
 
-    if (pages.length === 0 && process.env.META_ACCESS_TOKEN) {
-      // User has no managed pages returned by token, link default test page
-      await query(
-        `INSERT INTO channels (tenant_id, platform, channel_identifier, channel_name, access_token, ai_active, webhook_verified, updated_at)
-         VALUES ($1, 'facebook', '1374129259109200', 'Little Joys', $2, TRUE, TRUE, NOW())
-         ON CONFLICT (platform, channel_identifier)
-         DO UPDATE SET 
-           channel_name = 'Little Joys',
-           access_token = EXCLUDED.access_token,
-           tenant_id = EXCLUDED.tenant_id,
-           ai_active = TRUE,
-           webhook_verified = TRUE,
-           updated_at = NOW();`,
-        [tenantId, process.env.META_ACCESS_TOKEN]
+    if (pages.length === 0) {
+      return NextResponse.redirect(
+        `${returnOrigin}/dashboard/channels?error=No_Pages_Found&details=${encodeURIComponent(
+          'আপনার ফেসবুক অ্যাকাউন্টে কোনো পেজ পাওয়া যায়নি অথবা অথোরাইজেশন ডায়ালগে কোনো পেজের পারমিশন সিলেক্ট করা হয়নি।'
+        )}&platform=facebook`
       );
-
-      return NextResponse.redirect(`${returnOrigin}/dashboard/channels?connected=true&channel_name=Little%20Joys&count=1`);
     }
 
     // 3. Subscribe each page and save in channels
@@ -268,9 +221,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.redirect(`${returnOrigin}/dashboard/channels?connected=true&count=${pages.length}`);
+    const pageNames = pages.map((p: any) => p.name).join(', ');
+    return NextResponse.redirect(
+      `${returnOrigin}/dashboard/channels?connected=true&channel_name=${encodeURIComponent(
+        pageNames
+      )}&count=${pages.length}&platform=facebook`
+    );
   } catch (err: any) {
     console.error('Facebook OAuth Callback exception:', err);
-    return NextResponse.redirect(`${returnOrigin}/dashboard/channels?error=${encodeURIComponent(err.message)}`);
+    return NextResponse.redirect(
+      `${returnOrigin}/dashboard/channels?error=OAuth_Exception&details=${encodeURIComponent(
+        err.message || 'একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।'
+      )}&platform=facebook`
+    );
   }
 }

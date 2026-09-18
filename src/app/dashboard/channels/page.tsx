@@ -60,7 +60,7 @@ export default function ChannelsPage() {
   const [oauthSuccessMessage, setOauthSuccessMessage] = useState('');
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthErrorDetails, setOauthErrorDetails] = useState<string | null>(null);
-  const [quickSyncLoading, setQuickSyncLoading] = useState(false);
+  const [oauthErrorPlatform, setOauthErrorPlatform] = useState<'facebook' | 'whatsapp'>('facebook');
   const [showAdvancedMeta, setShowAdvancedMeta] = useState(false);
 
   // Live AI Testing Modal State
@@ -207,19 +207,39 @@ export default function ChannelsPage() {
     if (params.get('connected') === 'true') {
       const pageName = params.get('channel_name') || 'চ্যানেল';
       const isWa = params.get('platform') === 'whatsapp';
-      setOauthSuccessMessage(
-        isWa
-          ? `🎉 অভিনন্দন! "${pageName}" সফলভাবে মেটা দিয়ে সংযুক্ত হয়েছে এবং হোয়াটসঅ্যাপ এআই সক্রিয়!`
-          : `🎉 অভিনন্দন! "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`
-      );
+      const successMsg = isWa
+        ? `🎉 অভিনন্দন! "${pageName}" সফলভাবে মেটা দিয়ে সংযুক্ত হয়েছে এবং হোয়াটসঅ্যাপ এআই সক্রিয়!`
+        : `🎉 অভিনন্দন! "${pageName}" সফলভাবে সংযুক্ত হয়েছে এবং এআই সেলস কনসালট্যান্ট সক্রিয় করা হয়েছে!`;
+
+      setOauthSuccessMessage(successMsg);
       setOauthSuccess(true);
       setOauthError(null);
+      toast.success(successMsg, { duration: 6000 });
       setTimeout(() => setOauthSuccess(false), 8000);
     }
     if (params.get('error')) {
-      const err = params.get('error');
+      const err = params.get('error')!;
+      const details = params.get('details') || null;
+      const targetPlatform = (params.get('platform') === 'whatsapp' ? 'whatsapp' : 'facebook') as 'facebook' | 'whatsapp';
       setOauthError(err);
-      setOauthErrorDetails(params.get('details') || null);
+      setOauthErrorDetails(details);
+      setOauthErrorPlatform(targetPlatform);
+
+      const readableError =
+        err === 'Token_Exchange_Failed'
+          ? 'মেটা টোকেন এক্সচেঞ্জ ব্যর্থ হয়েছে'
+          : err === 'No_Pages_Found'
+          ? 'কোনো ফেসবুক পেজ পাওয়া যায়নি'
+          : err === 'No_WhatsApp_Account_Found'
+          ? 'কোনো হোয়াটসঅ্যাপ বিজনেস অ্যাকাউন্ট পাওয়া যায়নি'
+          : err === 'Auth_Cancelled'
+          ? 'কানেকশন বাতিল করা হয়েছে'
+          : err;
+
+      toast.error(`সংযোগ ব্যর্থ: ${readableError}`, {
+        description: details || 'অনুগ্রহ করে পুনরায় চেষ্টা করুন বা ম্যানুয়ালি তথ্য প্রদান করুন।',
+        duration: 8000,
+      });
     }
     // Clean URL bar smoothly
     if (params.get('connected') || params.get('error')) {
@@ -245,27 +265,6 @@ export default function ChannelsPage() {
       return;
     }
     window.location.href = `/api/auth/whatsapp/login?token=${token}`;
-  };
-
-  const handleQuickSync = async () => {
-    setQuickSyncLoading(true);
-    try {
-      const token = getSessionToken();
-      const res = await fetch('/api/channels/quick-sync', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Quick sync failed');
-      setOauthSuccessMessage(data.message || 'ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে!');
-      setOauthSuccess(true);
-      setOauthError(null);
-      fetchChannels();
-    } catch (err: any) {
-      setOauthError(err.message);
-    } finally {
-      setQuickSyncLoading(false);
-    }
   };
 
   const fetchChannels = async () => {
@@ -566,14 +565,26 @@ export default function ChannelsPage() {
               </div>
               <div>
                 <h3 className="font-black text-sm text-amber-950">
-                  ফেসবুক পেজ কানেকশনে সাময়িক সমস্যা হয়েছে ({oauthError})
+                  {oauthErrorPlatform === 'whatsapp' ? 'হোয়াটসঅ্যাপ' : 'ফেসবুক পেজ'} কানেকশনে সমস্যা হয়েছে (
+                  {oauthError === 'Token_Exchange_Failed'
+                    ? 'টোকেন এক্সচেঞ্জ ব্যর্থ'
+                    : oauthError === 'No_Pages_Found'
+                    ? 'কোনো পেজ পাওয়া যায়নি'
+                    : oauthError === 'No_WhatsApp_Account_Found'
+                    ? 'হোয়াটসঅ্যাপ অ্যাকাউন্ট পাওয়া যায়নি'
+                    : oauthError === 'Auth_Cancelled'
+                    ? 'অনুমোদন বাতিল'
+                    : oauthError}
+                  )
                 </h3>
                 <p className="text-slate-700 mt-1 leading-relaxed">
-                  ফেসবুকের রিডাইরেক্ট কোড হ্যান্ডশেকের সময় সমস্যা হয়েছে। তবে চিন্তার কোনো কারণ নেই, আপনি নিচের যেকোনো একটি সহজ উপায়ে এখনই পেজ কানেক্ট করতে পারেন:
+                  {oauthErrorPlatform === 'whatsapp'
+                    ? 'মেটা ক্লাউড এপিআইয়ের মাধ্যমে হোয়াটসঅ্যাপ কানেক্ট করার সময় সমস্যা দেখা দিয়েছে। আপনি পুনরায় কানেক্ট করতে পারেন অথবা ম্যানুয়ালি তথ্য দিতে পারেন:'
+                    : 'ফেসবুকের হ্যান্ডশেকের সময় সমস্যা দেখা দিয়েছে। আপনি নিচের যেকোনো একটি সহজ উপায়ে এখনই পেজ কানেক্ট করতে পারেন:'}
                 </p>
                 {oauthErrorDetails && (
-                  <p className="mt-1.5 font-mono text-[11px] bg-white/80 p-2 rounded-lg border border-amber-200 text-amber-900 break-all">
-                    মেটা মেসেজ: {oauthErrorDetails}
+                  <p className="mt-1.5 font-mono text-[11px] bg-white/80 p-2.5 rounded-lg border border-amber-200 text-amber-900 break-all leading-normal">
+                    মেটা মেসেজ / বিবরণ: {oauthErrorDetails}
                   </p>
                 )}
               </div>
@@ -587,27 +598,55 @@ export default function ChannelsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-amber-200/60">
-            <button
-              onClick={handleFacebookOAuthLogin}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm transition-all"
-            >
-              <span className="font-black">f</span>
-              <span>পুনরায় ফেসবুক কানেক্ট করুন</span>
-            </button>
+            {oauthErrorPlatform === 'whatsapp' ? (
+              <>
+                <button
+                  onClick={handleWhatsAppOAuthLogin}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>পুনরায় হোয়াটসঅ্যাপ কানেক্ট করুন</span>
+                </button>
 
-            <button
-              onClick={() => {
-                setPlatform('facebook');
-                setChannelName('');
-                setChannelIdentifier('');
-                setAccessToken('');
-                setModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 transition-all"
-            >
-              <span>🔑</span>
-              <span>ম্যানুয়ালি টোকেন প্রদান করুন</span>
-            </button>
+                <button
+                  onClick={() => {
+                    setPlatform('whatsapp');
+                    setChannelName('');
+                    setChannelIdentifier('');
+                    setAccessToken('');
+                    setModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 transition-all"
+                >
+                  <span>🔑</span>
+                  <span>ম্যানুয়ালি হোয়াটসঅ্যাপ তথ্য দিন</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleFacebookOAuthLogin}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm transition-all"
+                >
+                  <span className="font-black">f</span>
+                  <span>পুনরায় ফেসবুক কানেক্ট করুন</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setPlatform('facebook');
+                    setChannelName('');
+                    setChannelIdentifier('');
+                    setAccessToken('');
+                    setModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 transition-all"
+                >
+                  <span>🔑</span>
+                  <span>ম্যানুয়ালি টোকেন প্রদান করুন</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1572,7 +1611,7 @@ export default function ChannelsPage() {
                       required
                       value={channelName}
                       onChange={(e) => setChannelName(e.target.value)}
-                      placeholder="যেমন: Little Joys WhatsApp"
+                      placeholder="যেমন: My Shop WhatsApp"
                       className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     />
                   </div>
@@ -1633,8 +1672,8 @@ export default function ChannelsPage() {
                       onChange={(e) => setChannelName(e.target.value)}
                       placeholder={
                         platform === 'facebook'
-                          ? 'যেমন: Little Joys'
-                          : 'যেমন: @littlejoys_official'
+                          ? 'যেমন: আপনার পেজের নাম'
+                          : 'যেমন: @your_brand_handle'
                       }
                       className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
                     />
@@ -1649,7 +1688,7 @@ export default function ChannelsPage() {
                       required
                       value={channelIdentifier}
                       onChange={(e) => setChannelIdentifier(e.target.value)}
-                      placeholder="যেমন: 1374129259109200"
+                      placeholder="যেমন: 1000987654321"
                       className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900"
                     />
                   </div>

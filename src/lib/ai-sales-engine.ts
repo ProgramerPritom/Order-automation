@@ -169,7 +169,7 @@ export async function processCustomerMessage(
 
     if (!products) {
       const prodRes = await query(
-        `SELECT id, title, price, stock, sku, description 
+        `SELECT id, title, price, stock, sku, description, rag_knowledge 
          FROM products 
          WHERE tenant_id = $1 AND is_active = TRUE 
          ORDER BY stock DESC 
@@ -184,7 +184,7 @@ export async function processCustomerMessage(
     const catalogText = products
       .map(
         (p: any, i: number) =>
-          `${i + 1}. [ID: ${p.id}] ${p.title} | মূল্য: ৳${p.price} | স্টক: ${p.stock} | বিবরণ: ${p.description || 'N/A'}`
+          `${i + 1}. [ID: ${p.id}] ${p.title} | মূল্য: ৳${p.price} | স্টক: ${p.stock} | বিবরণ: ${p.description || 'N/A'}${p.rag_knowledge ? ` | র্যাক নলেজ: ${p.rag_knowledge}` : ''}`
       )
       .join('\n');
 
@@ -202,7 +202,7 @@ export async function processCustomerMessage(
     if (referralPostId) {
       try {
         const mappedRes = await query(
-          `SELECT p.id, p.title, p.price, p.stock, p.sku, p.description
+          `SELECT p.id, p.title, p.price, p.stock, p.sku, p.description, p.rag_knowledge
            FROM post_product_mappings ppm
            JOIN products p ON ppm.product_id = p.id
            WHERE ppm.post_id = $1 AND ppm.tenant_id = $2
@@ -217,7 +217,8 @@ export async function processCustomerMessage(
 - নির্ধারিত মূল্য: ৳${mp.price}
 - বর্তমান লাইভ স্টক: ${mp.stock} পিস
 - পণ্যের বিবরণ: ${mp.description || 'N/A'}
-(কাস্টমার যখন এই পণ্যটির তথ্য বা মূল্য জানতে চাইবে, নিশ্চিতভাবে এই লিঙ্কড পণ্যের মূল্য ও স্টকই জানাও।)
+${mp.rag_knowledge ? `- পণ্যের বিস্তারিত এআই র্যাক নলেজ (RAG Knowledge / স্পেসিফিকেশন): ${mp.rag_knowledge}` : ''}
+(কাস্টমার যখন এই পণ্যটির তথ্য, সাইজ, উপাদান বা মূল্য জানতে চাইবে, নিশ্চিতভাবে এই লিঙ্কড পণ্যের র্যাক নলেজ ও মূল্য দেখে নির্ভুল তথ্য দাও।)
 `;
         }
       } catch (e) {
