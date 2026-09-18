@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
     const { cursor, limit } = parsePaginationParams(req.url, 15, 50);
     const decodedCursor = decodeCursor(cursor);
 
-    // 1. Total posts count
-    let countSql = `SELECT count(*) FROM facebook_posts p LEFT JOIN channels c ON p.channel_id = c.id WHERE p.tenant_id = $1`;
+    // 1. Total posts count (excluding stories / captionless posts)
+    let countSql = `SELECT count(*) FROM facebook_posts p LEFT JOIN channels c ON p.channel_id = c.id WHERE p.tenant_id = $1 AND p.message IS NOT NULL AND trim(p.message) != '' AND (p.permalink_url IS NULL OR p.permalink_url NOT LIKE '%substory_index%')`;
     const countParams: any[] = [auth.tenantId];
     if (postId) {
       countParams.push(postId);
@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN facebook_comments cm ON p.post_id = cm.post_id
       LEFT JOIN post_product_mappings ppm ON p.post_id = ppm.post_id AND p.tenant_id = ppm.tenant_id
       LEFT JOIN products pr ON ppm.product_id = pr.id
-      WHERE p.tenant_id = $1
+      WHERE p.tenant_id = $1 AND p.message IS NOT NULL AND trim(p.message) != '' AND (p.permalink_url IS NULL OR p.permalink_url NOT LIKE '%substory_index%')
     `;
     const params: any[] = [auth.tenantId];
 
@@ -105,23 +105,34 @@ export async function GET(req: NextRequest) {
 
     if (decodedCursor) {
       params.push(decodedCursor.createdAt, decodedCursor.id);
-      postsSql += ` AND (p.updated_at, p.id) < ($${params.length - 1}, $${params.length})`;
+      postsSql += ` AND (p.created_time, p.id) < ($${params.length - 1}, $${params.length})`;
     }
 
-    postsSql += ` GROUP BY p.id, c.channel_name, c.platform, pr.id, pr.title, pr.price, pr.stock, pr.image_url, pr.sku ORDER BY p.updated_at DESC, p.id DESC LIMIT $${params.length + 1};`;
+    postsSql += ` GROUP BY p.id, c.channel_name, c.platform, pr.id, pr.title, pr.price, pr.stock, pr.image_url, pr.sku ORDER BY p.created_time DESC, p.id DESC LIMIT $${params.length + 1};`;
     params.push(limit + 1);
 
     const res = await query(postsSql, params);
     const rows = res.rows;
     const hasMore = rows.length > limit;
-    const posts = hasMore ? rows.slice(0, limit) : rows;
+    const rawPosts = hasMore ? rows.slice(0, limit) : rows;
+
+    // Sanitize permalink_url to ensure full absolute Facebook URL
+    const posts = rawPosts.map((p: any) => {
+      let link = p.permalink_url || '';
+      if (link && link.startsWith('/')) {
+        link = `https://www.facebook.com${link}`;
+      } else if (!link) {
+        link = `https://www.facebook.com/${p.post_id}`;
+      }
+      return { ...p, permalink_url: link };
+    });
 
     let nextCursor: string | null = null;
     if (hasMore && posts.length > 0) {
       const last = posts[posts.length - 1];
       nextCursor = encodeCursor({
         id: last.id,
-        createdAt: new Date(last.updated_at || last.created_time).toISOString(),
+        createdAt: new Date(last.created_time).toISOString(),
       });
     }
 

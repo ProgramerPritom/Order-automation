@@ -33,6 +33,7 @@ import {
   PackageCheck,
   Check,
   Film,
+  Eye,
 } from 'lucide-react';
 
 interface CommentItem {
@@ -80,6 +81,19 @@ export interface ProductOption {
   sku?: string;
 }
 
+// Helper to guarantee direct, working Facebook URL
+const getFacebookUrl = (post?: PostItem | null): string => {
+  if (!post) return 'https://www.facebook.com';
+  let url = (post.permalink_url || '').trim();
+  if (url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('/')) return `https://www.facebook.com${url}`;
+    return `https://www.facebook.com/${url}`;
+  }
+  const cleanId = post.post_id.includes('_') ? post.post_id.split('_')[1] : post.post_id;
+  return `https://www.facebook.com/${cleanId}`;
+};
+
 export default function CommentsPage() {
   const dispatch = useAppDispatch();
   const reduxPostsState = useAppSelector((state) => state.posts);
@@ -95,6 +109,26 @@ export default function CommentsPage() {
   const [catalogProducts, setCatalogProducts] = useState<ProductOption[]>([]);
   const [mappingLoadingPostId, setMappingLoadingPostId] = useState<string | null>(null);
   const [mappingToast, setMappingToast] = useState<string | null>(null);
+
+  // Post Detail Modal (Large Thumbnail & Full Post Content)
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailModalPost, setDetailModalPost] = useState<PostItem | null>(null);
+
+  const openPostDetailModal = (post: PostItem) => {
+    setDetailModalPost(post);
+    setDetailModalOpen(true);
+  };
+
+  // Helper to filter out stories and captionless posts and sort by latest date first
+  const sanitizeAndSortPosts = (rawPosts: PostItem[]): PostItem[] => {
+    return rawPosts
+      .filter((p) => p.message && p.message.trim().length > 0 && !p.permalink_url?.includes('substory_index'))
+      .sort(
+        (a, b) =>
+          new Date(b.created_time || b.updated_at).getTime() -
+          new Date(a.created_time || a.updated_at).getTime()
+      );
+  };
 
   // Stats
   const [metrics, setMetrics] = useState({
@@ -176,17 +210,18 @@ export default function CommentsPage() {
   // Sync with Redux state if populated
   useEffect(() => {
     if (reduxPostsState.posts.length > 0) {
-      setPosts(reduxPostsState.posts);
+      const sanitized = sanitizeAndSortPosts(reduxPostsState.posts);
+      setPosts(sanitized);
       setSelectedPost((curr) => {
         if (curr) {
-          const matched = reduxPostsState.posts.find((p) => p.post_id === curr.post_id);
-          return matched || reduxPostsState.posts[0];
+          const matched = sanitized.find((p) => p.post_id === curr.post_id);
+          return matched || sanitized[0];
         }
-        return reduxPostsState.posts[0];
+        return sanitized[0];
       });
       setMetrics((prev) => ({
         ...prev,
-        totalPosts: reduxPostsState.totalCount || reduxPostsState.posts.length,
+        totalPosts: reduxPostsState.totalCount || sanitized.length,
       }));
       setLoading(false);
     }
@@ -217,14 +252,15 @@ export default function CommentsPage() {
       });
       const data = await res.json();
       if (data.posts) {
-        setPosts(data.posts);
-        if (data.posts.length > 0) {
+        const sanitized = sanitizeAndSortPosts(data.posts);
+        setPosts(sanitized);
+        if (sanitized.length > 0) {
           setSelectedPost((current) => {
             if (current) {
-              const matched = data.posts.find((p: any) => p.id === current.id);
-              return matched || data.posts[0];
+              const matched = sanitized.find((p: any) => p.id === current.id);
+              return matched || sanitized[0];
             }
-            return data.posts[0];
+            return sanitized[0];
           });
         } else {
           setSelectedPost(null);
@@ -232,7 +268,7 @@ export default function CommentsPage() {
         if (data.pagination) {
           setNextCursor(data.pagination.nextCursor);
           setHasMore(data.pagination.hasMore);
-          setTotalCount(data.pagination.totalCount || 0);
+          setTotalCount(data.pagination.totalCount || sanitized.length);
         }
         setCurrentPage(targetPage);
       } else {
@@ -327,11 +363,12 @@ export default function CommentsPage() {
       const res = await dispatch(syncFacebookFeed({ token })).unwrap();
       toast.success(res.message || 'ফেসবুক পেজ থেকে পোস্ট সফলভাবে সিঙ্ক করা হয়েছে!');
       if (res.posts) {
-        setPosts(res.posts);
-        if (res.posts.length > 0) {
-          setSelectedPost(res.posts[0]);
+        const sanitized = sanitizeAndSortPosts(res.posts);
+        setPosts(sanitized);
+        if (sanitized.length > 0) {
+          setSelectedPost(sanitized[0]);
         }
-        setMetrics((m) => ({ ...m, totalPosts: res.totalCount || res.posts.length }));
+        setMetrics((m) => ({ ...m, totalPosts: res.totalCount || sanitized.length }));
       }
     } catch (err: any) {
       toast.error('সিঙ্ক ব্যর্থ হয়েছে', {
@@ -386,67 +423,80 @@ export default function CommentsPage() {
       <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit">
         <button
           onClick={() => setPlatformFilter('all')}
-          className={`px-4 py-2 rounded-xl font-bold text-xs transition-all border ${
-            platformFilter === 'all'
+          className={`px-4 py-2 rounded-xl font-bold text-xs transition-all border ${platformFilter === 'all'
               ? 'bg-white text-indigo-600 border-slate-200/90 shadow-sm'
               : 'text-slate-600 border-transparent hover:text-slate-900 hover:bg-white/60 hover:border-slate-200/50'
-          }`}
+            }`}
         >
           সকল পোস্ট ({metrics.totalPosts})
         </button>
         <button
           onClick={() => setPlatformFilter('facebook')}
-          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs transition-all border ${
-            platformFilter === 'facebook'
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs transition-all border ${platformFilter === 'facebook'
               ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-500/20'
               : 'text-slate-600 border-transparent hover:text-blue-600 hover:bg-white/60 hover:border-blue-200'
-          }`}
+            }`}
         >
           <span className="font-bold">f</span>
           <span>ফেসবুক পোস্ট</span>
         </button>
         <button
           onClick={() => setPlatformFilter('instagram')}
-          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs transition-all border ${
-            platformFilter === 'instagram'
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs transition-all border ${platformFilter === 'instagram'
               ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-pink-400 shadow-sm shadow-pink-500/20'
               : 'text-slate-600 border-transparent hover:text-pink-600 hover:bg-white/60 hover:border-pink-200'
-          }`}
+            }`}
         >
           <span>📸</span>
           <span>ইনস্টাগ্রাম পোস্ট</span>
         </button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">মোট ট্র্যাকড পোস্ট</p>
-          <p className="text-2xl font-black text-slate-900 mt-1">{loading ? '...' : metrics.totalPosts}</p>
-          <p className="text-[10px] text-slate-400 mt-1">কানেক্টেড পেজের সক্রিয় পোস্ট</p>
+      {/* Compact Metrics Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">মোট ট্র্যাকড পোস্ট</p>
+            <p className="text-xl font-black text-slate-900 leading-tight mt-0.5">{loading ? '...' : metrics.totalPosts}</p>
+          </div>
+          <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
+            <Film className="w-4 h-4" />
+          </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">মোট কমেন্ট সংখ্যা</p>
-          <p className="text-2xl font-black text-indigo-600 mt-1">{loading ? '...' : metrics.totalComments}</p>
-          <p className="text-[10px] text-slate-400 mt-1">গ্রাহকদের মোট প্রশ্ন ও মন্তব্য</p>
+        <div className="bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">মোট কমেন্ট সংখ্যা</p>
+            <p className="text-xl font-black text-indigo-600 leading-tight mt-0.5">{loading ? '...' : metrics.totalComments}</p>
+          </div>
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+            <MessageCircle className="w-4 h-4" />
+          </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">এআই অটো-রিপ্লাই সম্পন্ন</p>
-          <p className="text-2xl font-black text-emerald-600 mt-1">{loading ? '...' : metrics.aiRepliedCount}</p>
-          <p className="text-[10px] text-emerald-600 font-bold mt-1">১০০% তাৎক্ষণিক রেসপন্স</p>
+        <div className="bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">এআই অটো-রিপ্লাই</p>
+            <p className="text-xl font-black text-emerald-600 leading-tight mt-0.5">{loading ? '...' : metrics.aiRepliedCount}</p>
+          </div>
+          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
+            <Bot className="w-4 h-4" />
+          </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">ইনবক্স মেসেজ প্রেরিত</p>
-          <p className="text-2xl font-black text-sky-600 mt-1">{loading ? '...' : metrics.privateRepliedCount}</p>
-          <p className="text-[10px] text-sky-600 font-bold mt-1">ডিরেক্ট সেলস ইনবক্স কানেকশন</p>
+        <div className="bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">ইনবক্স মেসেজ প্রেরিত</p>
+            <p className="text-xl font-black text-sky-600 leading-tight mt-0.5">{loading ? '...' : metrics.privateRepliedCount}</p>
+          </div>
+          <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-xs shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
         </div>
       </div>
 
       {/* Main Container: Posts List (4 cols) + Comments Stream (8 cols) - Viewport Adaptive */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px] lg:h-[calc(100vh-270px)] lg:min-h-[520px]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px] lg:h-[calc(100vh-220px)] lg:min-h-[520px]">
         {/* Posts List */}
         <div className="lg:col-span-4 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
@@ -454,8 +504,8 @@ export default function CommentsPage() {
               {platformFilter === 'all'
                 ? 'সকল পোস্ট'
                 : platformFilter === 'facebook'
-                ? 'ফেসবুক পোস্টসমূহ'
-                : 'ইনস্টাগ্রাম পোস্টসমূহ'}{' '}
+                  ? 'ফেসবুক পোস্টসমূহ'
+                  : 'ইনস্টাগ্রাম পোস্টসমূহ'}{' '}
               ({loading ? '...' : posts.length})
             </h3>
             {loading && <span className="w-3 h-3 rounded-full bg-indigo-600 animate-ping" />}
@@ -479,20 +529,75 @@ export default function CommentsPage() {
                 <div
                   key={post.id}
                   onClick={() => setSelectedPost(post)}
-                  className={`p-4 rounded-2xl cursor-pointer transition-all ${
-                    isSelected
+                  className={`p-3 rounded-2xl cursor-pointer transition-all ${isSelected
                       ? 'bg-sky-50 border-2 border-sky-500 shadow-sm'
                       : 'hover:bg-slate-50 border border-transparent'
-                  }`}
+                    }`}
                 >
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                    <span className="font-bold text-slate-700">{post.channel_name || 'Facebook Page'}</span>
-                    <span>{new Date(post.created_time || post.updated_at).toLocaleDateString('bn-BD')}</span>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
+                    <span className="font-bold text-slate-700 truncate max-w-[130px]">
+                      {post.channel_name || 'Facebook Page'}
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {new Date(post.created_time || post.updated_at).toLocaleDateString('bn-BD')}
+                      </span>
+                      {/* Option button to open post details & large picture modal */}
+                      <button
+                        type="button"
+                        title="পোস্টের বিবরণ ও ছবি বড় করে দেখুন"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPostDetailModal(post);
+                        }}
+                        className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200/60 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      {/* Direct Facebook Link button */}
+                      <a
+                        href={getFacebookUrl(post)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="ফেসবুকে পোস্টটি সরাসরি দেখুন"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200/60 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
                   </div>
 
-                  <p className="text-xs font-bold text-slate-900 line-clamp-2 leading-relaxed">
-                    {post.message || 'পোস্টের ক্যাপশন নেই (ছবি বা ভিডিও পোস্ট)'}
-                  </p>
+                  {/* Post row: thumbnail + text */}
+                  <div className="flex items-start gap-2.5">
+                    {post.media_url ? (
+                      <div
+                        className="relative group/thumb shrink-0 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPostDetailModal(post);
+                        }}
+                        title="ছবি বড় করে দেখতে ক্লিক করুন"
+                      >
+                        <img
+                          src={post.media_url}
+                          alt="পোস্ট থাম্বনেইল"
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-100 group-hover/thumb:opacity-90 group-hover/thumb:scale-105 transition-all"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        <div className="absolute inset-0 bg-black/25 rounded-xl opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity text-white">
+                          <Eye className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 border border-slate-100">
+                        <Film className="w-5 h-5 text-slate-300" />
+                      </div>
+                    )}
+                    <p className="text-xs font-bold text-slate-900 line-clamp-2 leading-relaxed flex-1">
+                      {post.message || 'পোস্টের ক্যাপশন নেই'}
+                    </p>
+                  </div>
 
                   {/* Linked Product Status Badge */}
                   {post.linked_product ? (
@@ -567,17 +672,25 @@ export default function CommentsPage() {
                   </p>
                 </div>
 
-                {selectedPost.permalink_url && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openPostDetailModal(selectedPost)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-xs transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>বিস্তারিত ও ছবি</span>
+                  </button>
                   <a
-                    href={selectedPost.permalink_url}
+                    href={getFacebookUrl(selectedPost)}
                     target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 shrink-0"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 shrink-0 transition-colors shadow-xs"
                   >
                     <span>ফেসবুকে দেখুন</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
-                )}
+                </div>
               </div>
 
               {/* Product Linking Control Bar (Option 1: 1-Click Dropdown Linker) */}
@@ -716,50 +829,50 @@ export default function CommentsPage() {
                           )}
                         </div>
 
-                      {/* Comment Text */}
-                      <div className="mt-2.5 pl-10 text-xs text-slate-800 font-medium">
-                        "{comment.comment_text}"
-                      </div>
-
-                      {/* AI Public Reply Box */}
-                      {comment.ai_reply_text && (
-                        <div className="mt-3 ml-10 p-3 rounded-xl bg-white border border-emerald-200/80 shadow-xs flex items-start gap-2">
-                          <div className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
-                            <Bot className="w-3 h-3" />
-                          </div>
-                          <div className="text-xs">
-                            <p className="font-bold text-emerald-800 text-[11px] mb-0.5">
-                              এআই পাবলিক কমেন্ট রিপ্লাই (স্বয়ংক্রিয়ভাবে পোস্ট করা হয়েছে):
-                            </p>
-                            <p className="text-slate-700 leading-relaxed">{comment.ai_reply_text}</p>
-                          </div>
+                        {/* Comment Text */}
+                        <div className="mt-2.5 pl-10 text-xs text-slate-800 font-medium">
+                          "{comment.comment_text}"
                         </div>
-                      )}
 
-                      {/* Status Badges */}
-                      <div className="mt-3 ml-10 flex items-center gap-2 text-[10px]">
-                        {comment.ai_replied ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>AI Replied</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                            <Clock className="w-3 h-3" />
-                            <span>Pending Reply</span>
-                          </span>
+                        {/* AI Public Reply Box */}
+                        {comment.ai_reply_text && (
+                          <div className="mt-3 ml-10 p-3 rounded-xl bg-white border border-emerald-200/80 shadow-xs flex items-start gap-2">
+                            <div className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                              <Bot className="w-3 h-3" />
+                            </div>
+                            <div className="text-xs">
+                              <p className="font-bold text-emerald-800 text-[11px] mb-0.5">
+                                এআই পাবলিক কমেন্ট রিপ্লাই (স্বয়ংক্রিয়ভাবে পোস্ট করা হয়েছে):
+                              </p>
+                              <p className="text-slate-700 leading-relaxed">{comment.ai_reply_text}</p>
+                            </div>
+                          </div>
                         )}
 
-                        {comment.private_reply_sent && (
-                          <span className="inline-flex items-center gap-1 font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
-                            <ShieldCheck className="w-3 h-3" />
-                            <span>ইনবক্স মেসেজ পাঠানো হয়েছে</span>
-                          </span>
-                        )}
+                        {/* Status Badges */}
+                        <div className="mt-3 ml-10 flex items-center gap-2 text-[10px]">
+                          {comment.ai_replied ? (
+                            <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>AI Replied</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                              <Clock className="w-3 h-3" />
+                              <span>Pending Reply</span>
+                            </span>
+                          )}
+
+                          {comment.private_reply_sent && (
+                            <span className="inline-flex items-center gap-1 font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
+                              <ShieldCheck className="w-3 h-3" />
+                              <span>ইনবক্স মেসেজ পাঠানো হয়েছে</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })
                 ) : (
                   <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center">
                     <MessageSquare className="w-8 h-8 text-slate-300 mb-2" />
@@ -824,11 +937,10 @@ export default function CommentsPage() {
 
               {feedback && (
                 <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
-                    feedback.type === 'success'
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${feedback.type === 'success'
                       ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
                       : 'bg-rose-50 border border-rose-200 text-rose-800'
-                  }`}
+                    }`}
                 >
                   {feedback.type === 'success' ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -857,6 +969,111 @@ export default function CommentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Post Detail & Large Picture Modal */}
+      {detailModalOpen && detailModalPost && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 sm:p-7 max-w-xl w-full shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px]">
+                  FACEBOOK POST DETAILS
+                </span>
+                <span className="text-xs text-slate-400 font-mono">ID: {detailModalPost.post_id.slice(-8)}</span>
+              </div>
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+              {/* Large Thumbnail Image */}
+              {detailModalPost.media_url ? (
+                <div className="rounded-2xl overflow-hidden bg-slate-950/5 border border-slate-100 flex items-center justify-center max-h-[340px]">
+                  <img
+                    src={detailModalPost.media_url}
+                    alt="পোস্টের ছবি বা থাম্বনেইল"
+                    className="max-h-[340px] w-full object-contain rounded-2xl"
+                  />
+                </div>
+              ) : (
+                <div className="h-32 rounded-2xl bg-slate-100 flex flex-col items-center justify-center text-slate-400 gap-2 border border-slate-200">
+                  <Film className="w-8 h-8 text-slate-300" />
+                  <span className="text-xs font-semibold">কোনো থাম্বনেইল ছবি পাওয়া যায়নি</span>
+                </div>
+              )}
+
+              {/* Date & Channel Info */}
+              <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <span className="font-bold text-slate-700">{detailModalPost.channel_name || 'Facebook Page'}</span>
+                <span>
+                  {new Date(detailModalPost.created_time || detailModalPost.updated_at).toLocaleString('bn-BD', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </span>
+              </div>
+
+              {/* Full Post Caption / Text */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  পোস্টের সম্পূর্ণ বিবরণ / ক্যাপশন:
+                </label>
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 leading-relaxed whitespace-pre-line max-h-56 overflow-y-auto">
+                  {detailModalPost.message || 'পোস্টের কোনো লিখিত ক্যাপশন নেই।'}
+                </div>
+              </div>
+
+              {/* Linked Product Summary (if linked) */}
+              {detailModalPost.linked_product && (
+                <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-purple-600 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-purple-950">লিংক করা প্রোডাক্ট:</p>
+                      <p className="text-xs text-purple-900 font-semibold">{detailModalPost.linked_product.title}</p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-black text-purple-700 font-mono">৳{detailModalPost.linked_product.price}</p>
+                    <p className="text-[10px] text-emerald-600 font-bold">স্টক: {detailModalPost.linked_product.stock}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0 gap-2">
+              <span className="text-xs text-slate-500">
+                মোট কমেন্ট: <strong>{detailModalPost.comment_count} টি</strong>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDetailModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  বন্ধ করুন
+                </button>
+                <a
+                  href={getFacebookUrl(detailModalPost)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm shadow-blue-500/20 transition-all"
+                >
+                  <span>ফেসবুকে সরাসরি পোস্টটি খুলুন</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       )}

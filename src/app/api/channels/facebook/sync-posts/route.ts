@@ -60,30 +60,61 @@ export async function POST(req: NextRequest) {
     if (!pageToken) {
       return NextResponse.json(
         {
-          error:
-            'পেজের অ্যাক্সেস টোকেন পাওয়া যায়নি। অনুগ্রহ করে "Social Channels" থেকে পুনরায় পেজ কানেক্ট বা টোকেন আপডেট করুন।',
+          error: 'পেজের অ্যাক্সেস টোকেন পাওয়া যায়নি। অনুগ্রহ করে "Social Channels" থেকে পুনরায় পেজ কানেক্ট বা টোকেন আপডেট করুন।',
         },
         { status: 400 }
       );
     }
 
     // 2. Fetch latest posts from Facebook Graph API
-    const postsUrl = `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,attachments{media_type,url,media}&limit=50&access_token=${pageToken}`;
+    const postsUrl = `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,story,created_time,full_picture,permalink_url,attachments{media_type,url,media}&limit=50&access_token=${pageToken}`;
     const postsRes = await fetch(postsUrl);
     const postsData = await postsRes.json();
 
     if (!postsRes.ok) {
-      const errMsg = postsData?.error?.message || 'মেটা গ্রাফ এপিআই কল ব্যর্থ হয়েছে';
+      const errMsg = postsData?.error?.message || 'মেটা গ্রাফ এপিআই কল ব্যর্থ হয়েছে';
       console.warn('Facebook posts fetch error from Meta:', postsData);
       return NextResponse.json(
         {
-          error: `ফেসবুক থেকে পোস্ট রিফ্রেশ করতে সমস্যা হয়েছে: ${errMsg}`,
+          error: `ফেসবুক থেকে পোস্ট রিফ্রেশ করতে সমস্যা হয়েছে: ${errMsg}`,
         },
         { status: 400 }
       );
     }
 
-    const posts = postsData.data || [];
+    // Filter out cover photo updates, profile picture uploads, day stories, and captionless posts
+    const isDayStoryOrEmptyPost = (post: any): boolean => {
+      const story: string = (post.story || '').toLowerCase();
+      const message: string = (post.message || '').trim();
+      const permalink: string = (post.permalink_url || '').toLowerCase();
+
+      // Filter out posts with no caption/message (day stories / auto uploads)
+      if (!message) return true;
+
+      // Filter out substories / day stories
+      if (permalink.includes('substory_index')) return true;
+
+      const storyPhrases = [
+        'updated their cover photo',
+        'updated his cover photo',
+        'updated her cover photo',
+        'their cover',
+        'cover photo',
+        'profile picture',
+        'updated their profile picture',
+        'পরিচয় চিত্র',
+        'কভার ফটো',
+        'added a new photo',
+        'shared a story',
+      ];
+      if (story && storyPhrases.some((p) => story.includes(p))) {
+        if (!message || message.length < 5) return true;
+      }
+      return false;
+    };
+
+    const allPosts = postsData.data || [];
+    const posts = allPosts.filter((p: any) => !isDayStoryOrEmptyPost(p));
 
     // 3. Optional: fetch videos
     let videos: any[] = [];
@@ -92,7 +123,8 @@ export async function POST(req: NextRequest) {
       const vRes = await fetch(videosUrl);
       const vData = await vRes.json();
       if (vData.data && Array.isArray(vData.data)) {
-        videos = vData.data;
+        // Only keep videos that have descriptions
+        videos = vData.data.filter((v: any) => (v.description || '').trim().length > 0);
       }
     } catch (e) {
       console.warn('Video fetch skipped:', e);
@@ -102,10 +134,13 @@ export async function POST(req: NextRequest) {
     let syncedCount = 0;
     for (const post of posts) {
       const postId = post.id;
-      const message = post.message || '';
+      const message = (post.message || '').trim();
       const mediaUrl =
         post.full_picture || post.attachments?.data?.[0]?.media?.image?.src || null;
-      const permalinkUrl = post.permalink_url || `https://facebook.com/${postId}`;
+      let permalinkUrl = post.permalink_url || `https://www.facebook.com/${postId}`;
+      if (permalinkUrl.startsWith('/')) {
+        permalinkUrl = `https://www.facebook.com${permalinkUrl}`;
+      }
       const createdTime = post.created_time ? new Date(post.created_time) : new Date();
 
       await query(
@@ -116,6 +151,7 @@ export async function POST(req: NextRequest) {
            message = COALESCE(NULLIF(EXCLUDED.message, ''), facebook_posts.message),
            media_url = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
            permalink_url = COALESCE(EXCLUDED.permalink_url, facebook_posts.permalink_url),
+           created_time = EXCLUDED.created_time,
            updated_at = NOW();`,
         [auth.tenantId, channel.id, postId, message, mediaUrl, permalinkUrl, createdTime]
       );
@@ -126,9 +162,12 @@ export async function POST(req: NextRequest) {
     for (const vid of videos) {
       const vidId = vid.id;
       const postId = vidId.includes('_') ? vidId : `${pageId}_${vidId}`;
-      const message = vid.description || '';
+      const message = (vid.description || '').trim();
       const mediaUrl = vid.picture || null;
-      const permalinkUrl = vid.permalink_url || `https://facebook.com/${postId}`;
+      let permalinkUrl = vid.permalink_url || `https://www.facebook.com/${postId}`;
+      if (permalinkUrl.startsWith('/')) {
+        permalinkUrl = `https://www.facebook.com${permalinkUrl}`;
+      }
       const createdTime = vid.created_time ? new Date(vid.created_time) : new Date();
 
       await query(
@@ -139,13 +178,14 @@ export async function POST(req: NextRequest) {
            message = COALESCE(NULLIF(EXCLUDED.message, ''), facebook_posts.message),
            media_url = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
            permalink_url = COALESCE(EXCLUDED.permalink_url, facebook_posts.permalink_url),
+           created_time = EXCLUDED.created_time,
            updated_at = NOW();`,
         [auth.tenantId, channel.id, postId, message, mediaUrl, permalinkUrl, createdTime]
       );
       syncedCount++;
     }
 
-    // 6. Query updated posts with linked products
+    // 6. Query updated posts with linked products (sorted by created_time DESC - latest first)
     const updatedPostsRes = await query(
       `SELECT p.id, p.post_id, p.message, p.media_url, p.permalink_url, p.comment_count, 
               p.created_time, p.updated_at,
@@ -181,9 +221,9 @@ export async function POST(req: NextRequest) {
        LEFT JOIN facebook_comments cm ON p.post_id = cm.post_id
        LEFT JOIN post_product_mappings ppm ON p.post_id = ppm.post_id AND p.tenant_id = ppm.tenant_id
        LEFT JOIN products pr ON ppm.product_id = pr.id
-       WHERE p.tenant_id = $1
-       GROUP BY p.id, c.channel_name, c.platform, pr.id
-       ORDER BY p.updated_at DESC
+       WHERE p.tenant_id = $1 AND p.message IS NOT NULL AND trim(p.message) != '' AND (p.permalink_url IS NULL OR p.permalink_url NOT LIKE '%substory_index%')
+       GROUP BY p.id, c.channel_name, c.platform, pr.id, pr.title, pr.price, pr.stock, pr.image_url, pr.sku
+       ORDER BY p.created_time DESC
        LIMIT 50;`,
       [auth.tenantId]
     );

@@ -110,15 +110,36 @@ export const syncFacebookFeed = createAsyncThunk(
   }
 );
 
+const sanitizePosts = (posts: PostItem[]): PostItem[] => {
+  return posts
+    .filter((p) => p.message && p.message.trim().length > 0 && !p.permalink_url?.includes('substory_index'))
+    .map((p) => {
+      let link = p.permalink_url || '';
+      if (link && link.startsWith('/')) {
+        link = `https://www.facebook.com${link}`;
+      } else if (!link) {
+        link = `https://www.facebook.com/${p.post_id}`;
+      }
+      return { ...p, permalink_url: link };
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.created_time || b.updated_at).getTime() -
+        new Date(a.created_time || a.updated_at).getTime()
+    );
+};
+
 export const postsSlice = createSlice({
   name: 'posts',
   initialState,
   reducers: {
     setPosts: (state, action: PayloadAction<PostItem[]>) => {
-      state.posts = action.payload;
+      const sanitized = sanitizePosts(action.payload);
+      state.posts = sanitized;
+      state.totalCount = sanitized.length;
       state.isLoaded = true;
-      if (!state.selectedPostId && action.payload.length > 0) {
-        state.selectedPostId = action.payload[0].post_id;
+      if (!state.selectedPostId && sanitized.length > 0) {
+        state.selectedPostId = sanitized[0].post_id;
       }
     },
     setSelectedPostId: (state, action: PayloadAction<string | null>) => {
@@ -149,10 +170,11 @@ export const postsSlice = createSlice({
       .addCase(fetchPosts.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isLoaded = true;
-        state.posts = action.payload.posts;
-        state.totalCount = action.payload.totalCount;
-        if (!state.selectedPostId && action.payload.posts.length > 0) {
-          state.selectedPostId = action.payload.posts[0].post_id;
+        const sanitized = sanitizePosts(action.payload.posts || []);
+        state.posts = sanitized;
+        state.totalCount = action.payload.totalCount || sanitized.length;
+        if (!state.selectedPostId && sanitized.length > 0) {
+          state.selectedPostId = sanitized[0].post_id;
         }
       })
       .addCase(fetchPosts.rejected, (state, action) => {
@@ -170,10 +192,11 @@ export const postsSlice = createSlice({
         state.lastSynced = Date.now();
         state.syncMessage = action.payload.message || 'ফেসবুক পোস্ট সফলভাবে সিঙ্ক হয়েছে!';
         if (action.payload.posts) {
-          state.posts = action.payload.posts;
-          state.totalCount = action.payload.totalCount || action.payload.posts.length;
-          if (!state.selectedPostId && action.payload.posts.length > 0) {
-            state.selectedPostId = action.payload.posts[0].post_id;
+          const sanitized = sanitizePosts(action.payload.posts);
+          state.posts = sanitized;
+          state.totalCount = action.payload.totalCount || sanitized.length;
+          if (!state.selectedPostId && sanitized.length > 0) {
+            state.selectedPostId = sanitized[0].post_id;
           }
         }
       })
