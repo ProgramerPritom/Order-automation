@@ -26,6 +26,74 @@ const ALLOWED_MIME_TYPES = [
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
+async function uploadToSupabaseStorage(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string
+): Promise<string | null> {
+  const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
+  const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
+
+  if (!supabaseUrl || !supabaseKey) {
+    return null;
+  }
+
+  const bucketName = 'product-images';
+
+  const doUpload = async () => {
+    return await fetch(`${supabaseUrl}/storage/v1/object/${bucketName}/${filename}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseKey,
+        'Content-Type': mimeType,
+        'x-upsert': 'true',
+      },
+      body: new Uint8Array(buffer),
+    });
+  };
+
+  let res = await doUpload();
+
+  // If bucket does not exist, auto-create public bucket and retry
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    const isNotFound =
+      res.status === 404 ||
+      (typeof errorBody?.message === 'string' && errorBody.message.toLowerCase().includes('bucket not found'));
+
+    if (isNotFound) {
+      const createRes = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${supabaseKey}`,
+          apikey: supabaseKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: bucketName,
+          name: bucketName,
+          public: true,
+          file_size_limit: 10485760,
+        }),
+      });
+
+      if (createRes.ok) {
+        res = await doUpload();
+      }
+    }
+  }
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(
+      errData.message || errData.error || `Supabase Storage upload failed with status ${res.status}`
+    );
+  }
+
+  return `${supabaseUrl}/storage/v1/object/public/${bucketName}/${filename}`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const auth = await getAuthTenant(req);
@@ -65,13 +133,52 @@ export async function POST(req: NextRequest) {
     const cleanExt = extension.replace(/[^a-z0-9]/g, '');
     const filename = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${cleanExt || 'jpg'}`;
 
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
-    await mkdir(uploadDir, { recursive: true });
+    let publicUrl: string | null = null;
 
-    const filePath = path.join(uploadDir, filename);
-    await writeFile(filePath, buffer);
+    // 1. Primary: Upload to Supabase Storage (required for Vercel / serverless environments)
+    if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)) {
+      try {
+        publicUrl = await uploadToSupabaseStorage(buffer, filename, file.type);
+      } catch (storageError: any) {
+        console.error('Supabase Storage upload error:', storageError);
+        // If Supabase failed and we are on Vercel, rethrow error to avoid read-only fs crash
+        if (process.env.VERCEL) {
+          throw storageError;
+        }
+      }
+    }
 
-    const publicUrl = `/uploads/products/${filename}`;
+    // 2. Fallback: Local filesystem for offline local development
+    if (!publicUrl) {
+      if (process.env.VERCEL) {
+        return NextResponse.json(
+          {
+            error:
+              'Vercel-এ ফাইল সেভ করার জন্য Supabase Storage প্রয়োজন। দয়া করে Vercel Dashboard -> Environment Variables-এ SUPABASE_URL এবং SUPABASE_SERVICE_ROLE_KEY যুক্ত করুন।',
+          },
+          { status: 500 }
+        );
+      }
+
+      try {
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
+        await mkdir(uploadDir, { recursive: true });
+
+        const filePath = path.join(uploadDir, filename);
+        await writeFile(filePath, buffer);
+
+        publicUrl = `/uploads/products/${filename}`;
+      } catch (fsErr: any) {
+        console.error('Local filesystem upload failed:', fsErr);
+        return NextResponse.json(
+          {
+            error:
+              'ফাইল সেভ করা যায়নি। Vercel সার্ভারলেস এনভায়রনমেন্টে SUPABASE_URL ও SUPABASE_SERVICE_ROLE_KEY কনফিগার করুন।',
+          },
+          { status: 500 }
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -89,3 +196,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

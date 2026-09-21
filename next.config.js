@@ -4,6 +4,14 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['@whiskeysockets/baileys', 'pino', 'qrcode'],
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+      },
+    ],
+  },
 };
 
 module.exports = nextConfig;
