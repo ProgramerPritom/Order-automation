@@ -70,21 +70,55 @@ export async function POST(req: NextRequest) {
         const attachments = messagingEvent.message.attachments || [];
         const audioAttachment = attachments.find((a: any) => a.type === 'audio');
         const imageAttachment = attachments.find((a: any) => a.type === 'image');
+        let matchedProductId: string | undefined;
 
-        if (audioAttachment && !messageText) {
+        if (audioAttachment) {
           try {
             const transcription = await transcribeVoiceNote(audioAttachment.payload?.url);
-            messageText = `[ভয়েস নোট ট্রান্সক্রিপশন]: ${transcription.text}`;
+            const transcribedNote = `[ভয়েস নোট ট্রান্সক্রিপশন]: ${transcription.text}`;
+            messageText = messageText ? `${messageText} ${transcribedNote}` : transcribedNote;
           } catch (e) {}
         }
 
-        if (imageAttachment && !messageText) {
+        if (imageAttachment) {
           try {
-            const visionResult = await identifyProductFromImage(imageAttachment.payload?.url, []);
-            if (visionResult.matchedProduct) {
-              messageText = `[ছবিতে শনাক্তকৃত পণ্য]: ${visionResult.matchedProduct.title} (মূল্য: ৳${visionResult.matchedProduct.price})`;
+            // Fetch live catalog for this specific channel and tenant
+            let catalogProducts: any[] = [];
+            if (channel) {
+              const catRes = await query(
+                `SELECT id, title, price, stock, category, description, rag_knowledge, image_url
+                 FROM products
+                 WHERE tenant_id = $1 AND (channel_id IS NULL OR channel_id = $2) AND is_active = TRUE
+                 ORDER BY stock DESC LIMIT 25;`,
+                [channel.tenant_id, channel.id]
+              );
+              catalogProducts = catRes.rows;
             }
-          } catch (e) {}
+
+            const visionResult = await identifyProductFromImage(imageAttachment.payload?.url, catalogProducts);
+            
+            if (visionResult.matchedProduct) {
+              matchedProductId = visionResult.matchedProduct.id;
+              const p = visionResult.matchedProduct;
+              const ragInfo = p.rag_knowledge ? ` | র্যাক নলেজ: ${p.rag_knowledge}` : '';
+              const visionHeader = `[গ্রাহক পণ্যের ছবি পাঠিয়েছেন: ${imageAttachment.payload?.url}] [ছবিতে শনাক্তকৃত পণ্য]: ${p.title} (আইডি: ${p.id} | মূল্য: ৳${p.price} | লাইভ স্টক: ${p.stock} পিস${ragInfo})`;
+              messageText = messageText
+                ? `${visionHeader} [গ্রাহকের প্রশ্ন]: ${messageText}`
+                : `${visionHeader} [গ্রাহকের প্রশ্ন]: এই পণ্যটি কি স্টকে আছে এবং এর দাম কত?`;
+            } else {
+              const summary = visionResult.detectedItemSummary || 'একটি পণ্যের ছবি';
+              const color = visionResult.detectedColor ? ` (রং: ${visionResult.detectedColor})` : '';
+              const visionHeader = `[গ্রাহক পণ্যের ছবি পাঠিয়েছেন: ${imageAttachment.payload?.url}] [ছবিতে দৃশ্যমান]: ${summary}${color} [ক্যাটালগ স্ট্যাটাস]: স্টোরের ক্যাটালগে এই নির্দিষ্ট পণ্যটি সরাসরি পাওয়া যায়নি।`;
+              messageText = messageText
+                ? `${visionHeader} [গ্রাহকের প্রশ্ন]: ${messageText}`
+                : `${visionHeader} [গ্রাহকের প্রশ্ন]: এই পণ্যটি আপনাদের কাছে আছে কিনা এবং মূল্য কত?`;
+            }
+          } catch (e: any) {
+            console.error('Webhook vision processing error:', e.message);
+            if (!messageText) {
+              messageText = `[গ্রাহক একটি পণ্যের ছবি পাঠিয়েছেন: ${imageAttachment.payload?.url}] অনুগ্রহ করে এই পণ্যের দাম ও স্টক জানতে চান।`;
+            }
+          }
         }
 
         if (channel && senderId && messageText && channel.ai_active !== false) {
@@ -102,6 +136,8 @@ export async function POST(req: NextRequest) {
             pageId: String(pageId),
             senderId: String(senderId),
             messageText,
+            matchedProductId,
+            imageUrl: imageAttachment?.payload?.url,
             referralPostId,
             accessToken: channel.access_token || process.env.META_PAGE_ACCESS_TOKEN || '',
           });

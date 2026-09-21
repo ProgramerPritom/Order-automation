@@ -506,21 +506,73 @@ export default function CommentsPage() {
                 : platformFilter === 'facebook'
                   ? 'ফেসবুক পোস্টসমূহ'
                   : 'ইনস্টাগ্রাম পোস্টসমূহ'}{' '}
-              ({loading ? '...' : posts.length})
+              ({loading || isSyncingFeed || reduxPostsState.isSyncing ? '...' : posts.length})
             </h3>
-            {loading && <span className="w-3 h-3 rounded-full bg-indigo-600 animate-ping" />}
+            {(loading || isSyncingFeed || reduxPostsState.isSyncing) && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200/60">
+                <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" />
+                <span className="text-[10px] font-bold text-blue-600">সিঙ্ক হচ্ছে...</span>
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 p-2 space-y-1">
-            {loading && (
-              <div className="p-4 space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="p-4 rounded-2xl bg-slate-50 animate-pulse space-y-2.5">
-                    <div className="h-3 bg-slate-200 rounded w-1/3" />
-                    <div className="h-4 bg-slate-200 rounded w-full" />
-                    <div className="h-3 bg-slate-200 rounded w-1/4" />
+            {/* Active Sync Progress Banner */}
+            {(isSyncingFeed || reduxPostsState.isSyncing) && (
+              <div className="p-3.5 mb-2 bg-gradient-to-r from-blue-50 via-indigo-50 to-sky-50 border border-blue-200/80 rounded-2xl shadow-xs animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-blue-500/30">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                      <span>মেটা পেজ থেকে পোস্ট সিঙ্ক হচ্ছে</span>
+                      <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                    </p>
+                    <p className="text-[10px] text-blue-700/90 mt-0.5">
+                      লাইভ পোস্ট ও মিডিয়া ডাটা লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...
+                    </p>
+                  </div>
+                </div>
+                {/* Visual indeterminate progress shimmer */}
+                <div className="mt-2.5 w-full bg-blue-200/60 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded-full animate-pulse w-4/5" />
+                </div>
+              </div>
+            )}
+
+            {/* Syncing or Loading Skeleton State */}
+            {(loading || isSyncingFeed || reduxPostsState.isSyncing) && posts.length === 0 && (
+              <div className="p-2 space-y-2.5">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-100 animate-pulse space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="h-3 bg-slate-200 rounded w-28" />
+                      <div className="h-2.5 bg-slate-200 rounded w-16" />
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-11 h-11 rounded-xl bg-slate-200 shrink-0" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="h-3 bg-slate-200 rounded w-full" />
+                        <div className="h-3 bg-slate-200 rounded w-3/4" />
+                      </div>
+                    </div>
+                    <div className="h-5 bg-slate-100 rounded-lg w-1/2" />
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Skeletons on top if posts already exist during sync */}
+            {(isSyncingFeed || reduxPostsState.isSyncing) && posts.length > 0 && (
+              <div className="p-2 pb-0 space-y-2">
+                <div className="p-3 rounded-2xl bg-blue-50/40 border border-blue-100 animate-pulse space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="h-3 bg-blue-200/70 rounded w-24" />
+                    <div className="h-2.5 bg-blue-200/50 rounded w-12" />
+                  </div>
+                  <div className="h-3 bg-blue-200/60 rounded w-5/6" />
+                </div>
               </div>
             )}
             {posts.map((post) => {

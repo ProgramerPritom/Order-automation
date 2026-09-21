@@ -97,7 +97,8 @@ export async function generateProductVector(product: {
 export async function searchCatalogSemantic(
   tenantId: string,
   queryText: string,
-  limit = 5
+  limit = 5,
+  channelId?: string
 ): Promise<any[]> {
   const cleanQuery = (queryText || '').trim();
   if (!cleanQuery) return [];
@@ -106,15 +107,25 @@ export async function searchCatalogSemantic(
     const queryVector = await generateEmbedding(cleanQuery, DEFAULT_DIMENSIONS);
     const vectorString = formatVectorForPg(queryVector);
 
-    const vectorRes = await query(
-      `SELECT id, title, description, category, price, stock, sku, image_url, rag_knowledge,
-              ROUND((1 - (embedding <=> $2::vector))::numeric, 4) as similarity
-       FROM products 
-       WHERE tenant_id = $1 AND is_active = TRUE AND embedding IS NOT NULL
-       ORDER BY embedding <=> $2::vector ASC
-       LIMIT $3;`,
-      [tenantId, vectorString, limit]
-    );
+    let sql = `
+      SELECT id, title, description, category, price, stock, sku, image_url, rag_knowledge, channel_id,
+             ROUND((1 - (embedding <=> $2::vector))::numeric, 4) as similarity
+      FROM products 
+      WHERE tenant_id = $1 AND is_active = TRUE AND embedding IS NOT NULL
+    `;
+    const params: any[] = [tenantId, vectorString];
+
+    if (channelId) {
+      sql += ` AND (channel_id IS NULL OR channel_id = $3)`;
+      params.push(channelId);
+      sql += ` ORDER BY embedding <=> $2::vector ASC LIMIT $4;`;
+      params.push(limit);
+    } else {
+      sql += ` ORDER BY embedding <=> $2::vector ASC LIMIT $3;`;
+      params.push(limit);
+    }
+
+    const vectorRes = await query(sql, params);
 
     if (vectorRes.rows.length > 0) {
       return vectorRes.rows;
@@ -124,15 +135,24 @@ export async function searchCatalogSemantic(
   }
 
   // Graceful fallback to text search if no vector products yet
-  const fallbackRes = await query(
-    `SELECT id, title, description, category, price, stock, sku, image_url, rag_knowledge, 0.70 as similarity
-     FROM products 
-     WHERE tenant_id = $1 AND is_active = TRUE 
-       AND (title ILIKE $2 OR description ILIKE $2 OR category ILIKE $2 OR rag_knowledge ILIKE $2)
-     ORDER BY stock DESC 
-     LIMIT $3;`,
-    [tenantId, `%${cleanQuery}%`, limit]
-  );
+  let fallbackSql = `
+    SELECT id, title, description, category, price, stock, sku, image_url, rag_knowledge, channel_id, 0.70 as similarity
+    FROM products 
+    WHERE tenant_id = $1 AND is_active = TRUE 
+      AND (title ILIKE $2 OR description ILIKE $2 OR category ILIKE $2 OR rag_knowledge ILIKE $2)
+  `;
+  const fallbackParams: any[] = [tenantId, `%${cleanQuery}%`];
 
+  if (channelId) {
+    fallbackSql += ` AND (channel_id IS NULL OR channel_id = $3)`;
+    fallbackParams.push(channelId);
+    fallbackSql += ` ORDER BY stock DESC LIMIT $4;`;
+    fallbackParams.push(limit);
+  } else {
+    fallbackSql += ` ORDER BY stock DESC LIMIT $3;`;
+    fallbackParams.push(limit);
+  }
+
+  const fallbackRes = await query(fallbackSql, fallbackParams);
   return fallbackRes.rows;
 }

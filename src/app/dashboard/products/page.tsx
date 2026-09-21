@@ -22,8 +22,17 @@ import {
   Loader2,
 } from 'lucide-react';
 
+interface Channel {
+  id: string;
+  channel_name: string;
+  platform: string;
+}
+
 interface Product {
   id: string;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  platform?: string | null;
   title: string;
   description: string;
   category: string;
@@ -39,6 +48,9 @@ interface Product {
 export default function ProductsPage() {
   const { confirm } = useConfirm();
   const [products, setProducts] = useState<Product[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selectedChannelFilter, setSelectedChannelFilter] = useState('all');
+  const [selectedChannelId, setSelectedChannelId] = useState('all');
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -53,6 +65,21 @@ export default function ProductsPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const fetchChannels = async () => {
+    try {
+      const token = getSessionToken();
+      const res = await fetch('/api/channels', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.channels && Array.isArray(data.channels)) {
+        setChannels(data.channels);
+      }
+    } catch (e) {
+      console.warn('Failed to load channels:', e);
+    }
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -107,15 +134,23 @@ export default function ProductsPage() {
   const pageSize = 15;
 
   useEffect(() => {
-    fetchProducts(null, 1);
+    fetchProducts(null, 1, 'all');
+    fetchChannels();
   }, []);
 
-  const fetchProducts = async (cursorParam?: string | null, targetPage: number = 1) => {
+  const fetchProducts = async (
+    cursorParam?: string | null,
+    targetPage: number = 1,
+    channelFilter = selectedChannelFilter
+  ) => {
     setLoading(true);
     try {
       const token = getSessionToken();
       let url = `/api/products?limit=${pageSize}`;
       if (search) url += `&q=${encodeURIComponent(search)}`;
+      if (channelFilter && channelFilter !== 'all') {
+        url += `&channel_id=${encodeURIComponent(channelFilter)}`;
+      }
       if (cursorParam) url += `&cursor=${encodeURIComponent(cursorParam)}`;
 
       const res = await fetch(url, {
@@ -170,18 +205,27 @@ export default function ProductsPage() {
           price,
           stock,
           description,
+          channel_id: selectedChannelId === 'all' ? null : selectedChannelId,
           image_url: imageUrl || null,
           rag_knowledge: ragKnowledge.trim() || null,
         }),
       });
       const data = await res.json();
       if (res.ok && data.product) {
-        setProducts((prev) => [{ ...data.product, has_vector: true }, ...prev]);
+        const matchedChannel = channels.find((c) => c.id === data.product.channel_id);
+        const enrichedProduct = {
+          ...data.product,
+          channel_name: matchedChannel?.channel_name || null,
+          platform: matchedChannel?.platform || null,
+          has_vector: true,
+        };
+        setProducts((prev) => [enrichedProduct, ...prev]);
         setModalOpen(false);
         setTitle('');
         setDescription('');
         setRagKnowledge('');
         setImageUrl('');
+        setSelectedChannelId('all');
         toast.success('নতুন পণ্য সফলভাবে যুক্ত হয়েছে!');
       } else {
         toast.error(data.error || 'পণ্য যুক্ত করতে ব্যর্থ হয়েছে।');
@@ -296,21 +340,45 @@ export default function ProductsPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-80">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-            <Search className="w-4 h-4" />
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto flex-1">
+          <div className="relative w-full sm:w-72">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <Search className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="পণ্য, ক্যাটাগরি বা SKU খুঁজুন..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="পণ্য, ক্যাটাগরি বা SKU খুঁজুন..."
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <select
+              value={selectedChannelFilter}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedChannelFilter(val);
+                setCursorStack([null]);
+                fetchProducts(null, 1, val);
+              }}
+              className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">🌐 সকল পেজের পণ্য (All)</option>
+              <option value="global">গ্লোবাল পণ্য (Global Only)</option>
+              {channels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  📱 {ch.channel_name} ({ch.platform})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+        <div className="flex items-center gap-3 text-xs text-slate-500 shrink-0">
           <span>মোট পণ্য: <strong className="text-slate-900">{products.length}</strong></span>
           <span>•</span>
           <span>স্টকে আছে: <strong className="text-emerald-600">{products.filter((p) => p.stock > 0).length}</strong></span>
@@ -352,6 +420,17 @@ export default function ProductsPage() {
                     <div>
                       <p className="font-bold text-slate-900 line-clamp-1">{product.title}</p>
                       <p className="text-[11px] text-slate-400 line-clamp-1">{product.description}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {product.channel_name ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            📱 {product.channel_name}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                            🌐 সকল পেজ (Global)
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="py-4 px-6 font-medium text-slate-600">
@@ -506,6 +585,28 @@ export default function ProductsPage() {
                     />
                   </label>
                 )}
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>টার্গেট ফেসবুক পেজ / চ্যানেল</span>
+                  <span className="text-[10px] text-slate-400 font-normal lowercase">ঐচ্ছিক — ডিফল্ট: সকল পেজ</span>
+                </label>
+                <select
+                  value={selectedChannelId}
+                  onChange={(e) => setSelectedChannelId(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 font-bold text-xs text-slate-800 bg-slate-50/60 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">🌐 সকল পেজ (All Connected Pages - Global)</option>
+                  {channels.map((ch) => (
+                    <option key={ch.id} value={ch.id}>
+                      📱 {ch.channel_name} ({ch.platform === 'facebook' ? 'Facebook Page' : ch.platform})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  নির্দিষ্ট পেজ সিলেক্ট করলে পণ্যটি শুধুমাত্র সেই পেজের গ্রাহকদের ইনবক্স ও কমেন্ট RAG নলেজে ব্যবহৃত হবে।
+                </p>
               </div>
 
               <div>

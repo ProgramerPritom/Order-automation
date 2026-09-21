@@ -19,6 +19,8 @@ interface ProcessMessageParams {
   senderId: string;
   customerName?: string;
   messageText: string;
+  imageUrl?: string;
+  matchedProductId?: string;
   accessToken: string;
   referralPostId?: string;
 }
@@ -36,7 +38,19 @@ interface ProcessMessageResult {
 export async function processCustomerMessage(
   params: ProcessMessageParams
 ): Promise<ProcessMessageResult> {
-  const { tenantId, channelId, platform, pageId, senderId, customerName, messageText, accessToken, referralPostId } = params;
+  const {
+    tenantId,
+    channelId,
+    platform,
+    pageId,
+    senderId,
+    customerName,
+    messageText,
+    imageUrl,
+    matchedProductId,
+    accessToken,
+    referralPostId,
+  } = params;
 
   try {
     // 1. Resolve or Create Conversation
@@ -210,31 +224,51 @@ export async function processCustomerMessage(
       : `[অর্ডারের সব তথ্য প্রস্তুত]: সব রিকোয়ার্ড ফিল্ড বিদ্যমান!`;
 
     // =========================================================================
-    // 5. Dynamic Semantic RAG: Vector Search for Relevant Products
+    // 5. Dynamic Semantic RAG: Vector Search for Relevant Products (Channel-Scoped)
     // =========================================================================
     let semanticProducts: any[] = [];
     try {
-      semanticProducts = await searchCatalogSemantic(tenantId, messageText, 3);
+      semanticProducts = await searchCatalogSemantic(tenantId, messageText, 3, channelId);
     } catch (ragErr) {
       console.warn('Semantic catalog search failed, falling back to cache:', ragErr);
     }
 
     let products: any[] | null = semanticProducts;
     if (!products || products.length === 0) {
-      const catalogCacheKey = `catalog:${tenantId}`;
+      const catalogCacheKey = `catalog:${tenantId}:${channelId || 'all'}`;
       products = await saasRedis.get<any[]>(catalogCacheKey);
       if (!products) {
         const prodRes = await query(
-          `SELECT id, title, price, stock, sku, description, rag_knowledge 
+          `SELECT id, title, price, stock, sku, description, rag_knowledge, channel_id 
            FROM products 
-           WHERE tenant_id = $1 AND is_active = TRUE 
+           WHERE tenant_id = $1 AND (channel_id IS NULL OR channel_id = $2) AND is_active = TRUE 
            ORDER BY stock DESC 
            LIMIT 15;`,
-          [tenantId]
+          [tenantId, channelId]
         );
         products = prodRes.rows;
         await saasRedis.set(catalogCacheKey, products, { ex: 3600 });
       }
+    }
+
+    // If an exact product was matched via Multimodal Vision AI, prioritize it at the top
+    if (matchedProductId) {
+      try {
+        const matchedProdRes = await query(
+          `SELECT id, title, price, stock, sku, description, rag_knowledge, channel_id
+           FROM products
+           WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE
+           LIMIT 1;`,
+          [matchedProductId, tenantId]
+        );
+        if (matchedProdRes.rows.length > 0) {
+          const mp = matchedProdRes.rows[0];
+          activeLead.product_id = mp.id;
+          activeLead.product_title = mp.title;
+          activeLead.unit_price = Number(mp.price);
+          products = [mp, ...(products || []).filter((p: any) => p.id !== mp.id)];
+        }
+      } catch (e) {}
     }
 
     const catalogText = (products || [])
@@ -321,6 +355,9 @@ ${historyFormatted}
      - তখনই কেবল "is_order_confirmed": true করবে।
      - "order_details" ফিল্ডগুলো নির্ভুলভাবে পূরণ করবে।
      - reply_text-এ উষ্ণ অভিনন্দন ও অর্ডার কনফার্মেশন রিসিট মেসেজ দেবে।
+৪. কাস্টমার যদি কোনো পণ্যের ছবি পাঠায় বা ছবির পণ্য সম্পর্কে জানতে চায় (যেমন 'ভাই এই প্রোডাক্টটি আছে কিনা?', 'এটার দাম কত?'):
+   - যদি কাস্টমার বার্তায় [ছবিতে শনাক্তকৃত পণ্য] উল্লেখ থাকে: গ্রাহককে আশ্বস্ত করে বলুন যে পণ্যটি আমাদের স্টকে আছে, ক্যাটালগে থাকা সঠিক মূল্য (৳) জানান, এবং র্যাক নলেজ (RAG Knowledge / স্পেসিফিকেশন) থেকে আকর্ষণীয় বৈশিষ্ট্য উল্লেখ করে বলুন যে ক্যাশ অন ডেলিভারিতে নিতে চাইলে নাম, মোবাইল নম্বর ও ঠিকানা দিতে পারেন।
+   - যদি বার্তায় [ক্যাটালগ স্ট্যাটাস: সরাসরি পাওয়া যায়নি] উল্লেখ থাকে: বিনীতভাবে ও মিষ্টি করে জানান যে ছবিতে দেখানো এই নির্দিষ্ট মডেলটি বর্তমানে আমাদের স্টকে নেই, তবে আমাদের শপে এই ক্যাটাগরির দারুণ কিছু বিকল্প পণ্য রয়েছে যা চাইলে দেখতে পারেন।
 
 [আউটপুট JSON ফরম্যাট]:
 {

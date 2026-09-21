@@ -84,10 +84,12 @@ export async function processFacebookComment(params: ProcessCommentParams) {
       console.warn('Could not query post_product_mappings:', e);
     }
 
-    // Fetch product catalog for general fallback context
+    // Fetch product catalog for general fallback context (channel-scoped)
     const prodRes = await query(
-      `SELECT title, price, stock, category FROM products WHERE tenant_id = $1 LIMIT 15;`,
-      [tenantId]
+      `SELECT title, price, stock, category, rag_knowledge FROM products 
+       WHERE tenant_id = $1 AND (channel_id IS NULL OR channel_id = $2) AND is_active = TRUE 
+       ORDER BY stock DESC LIMIT 15;`,
+      [tenantId, channelId]
     );
     const productCatalog = prodRes.rows
       .map((p) => `- ${p.title}: ৳${p.price} (স্টক: ${p.stock})`)

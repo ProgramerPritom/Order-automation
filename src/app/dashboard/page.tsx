@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAppSelector } from '@/lib/store/hooks';
 import { getSessionToken } from '@/lib/session';
+import DashboardSkeleton from '@/components/ui/DashboardSkeleton';
 
 export default function DashboardOverviewPage() {
   const auth = useAppSelector((state) => state.auth);
@@ -56,45 +57,49 @@ export default function DashboardOverviewPage() {
     }
   };
 
+  if (loading) {
+    return <DashboardSkeleton />;
+  }
+
   return (
-    <div className="space-y-8 w-full">
+    <div className="space-y-5 w-full animate-in fade-in duration-300">
       
       {/* Welcome Banner */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold border border-indigo-400/30 mb-3">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[11px] font-bold border border-indigo-400/30 mb-1.5">
+            <Sparkles className="w-3 h-3 text-amber-400" />
             <span>AI Sales Executive v2.0</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black">
+          <h1 className="text-xl sm:text-2xl font-black">
             স্বাগতম! আপনার অটোমেশন সম্পূর্ণ সচল রয়েছে
           </h1>
-          <p className="mt-1.5 text-xs sm:text-sm text-indigo-200/90 max-w-xl">
+          <p className="mt-1 text-xs text-indigo-200/90 max-w-xl">
             ফেসবুক, ইনস্টাগ্রাম ও হোয়াটসঅ্যাপে কোনো কাস্টমার নক দিলে এআই স্বয়ংক্রিয়ভাবে স্টক চেক করে অর্ডার নিশ্চিত করছে।
           </p>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
           <Link
             href="/dashboard/channels"
-            className="px-4 py-2.5 rounded-xl bg-white text-slate-900 font-bold text-xs hover:bg-slate-100 transition-colors shadow-sm"
+            className="px-3.5 py-2 rounded-xl bg-white text-slate-900 font-bold text-xs hover:bg-slate-100 transition-colors shadow-sm"
           >
             চ্যানেল কনফিগার করুন
           </Link>
           {isSuperAdmin ? (
             <Link
               href="/dashboard/automation"
-              className="px-4 py-2.5 rounded-xl bg-indigo-600/60 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-400/40 transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-indigo-600/60 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-400/40 transition-colors flex items-center gap-1.5"
             >
-              <Activity className="w-4 h-4" />
+              <Activity className="w-3.5 h-3.5" />
               <span>n8n মনিটর</span>
             </Link>
           ) : (
             <Link
               href="/dashboard/inbox"
-              className="px-4 py-2.5 rounded-xl bg-indigo-600/60 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-400/40 transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-indigo-600/60 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-400/40 transition-colors flex items-center gap-1.5"
             >
-              <MessageSquare className="w-4 h-4" />
+              <MessageSquare className="w-3.5 h-3.5" />
               <span>লাইভ কাস্টমার ইনবক্স</span>
             </Link>
           )}
@@ -103,66 +108,66 @@ export default function DashboardOverviewPage() {
 
       {/* Metrics Row */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-sm animate-pulse space-y-3">
+            <div key={i} className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs animate-pulse space-y-2.5">
               <div className="flex items-center justify-between">
-                <div className="h-3.5 bg-slate-200 rounded w-24" />
-                <div className="w-9 h-9 rounded-xl bg-slate-100" />
+                <div className="h-3 bg-slate-200 rounded w-24" />
+                <div className="w-8 h-8 rounded-lg bg-slate-100" />
               </div>
-              <div className="h-7 bg-slate-200 rounded w-16" />
-              <div className="h-3 bg-slate-100 rounded w-28" />
+              <div className="h-6 bg-slate-200 rounded w-16" />
+              <div className="h-2.5 bg-slate-100 rounded w-28" />
             </div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
           
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">আজকের মোট বিক্রয়</span>
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <TrendingUp className="w-5 h-5" />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">আজকের মোট বিক্রয়</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="mt-3 text-2xl font-black text-slate-900">৳ {stats.todaySales.toLocaleString()}</p>
-            <p className="mt-1 text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
-              <ArrowUpRight className="w-3.5 h-3.5" />
+            <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900">৳ {stats.todaySales.toLocaleString()}</p>
+            <p className="mt-0.5 text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+              <ArrowUpRight className="w-3 h-3" />
               <span>গতকাল থেকে +২২% বৃদ্ধি</span>
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">আজকের অর্ডার সংখ্যা</span>
-              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                <ShoppingBag className="w-5 h-5" />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">আজকের অর্ডার সংখ্যা</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <ShoppingBag className="w-4 h-4" />
               </div>
             </div>
-            <p className="mt-3 text-2xl font-black text-slate-900">{stats.totalOrders} টি</p>
-            <p className="mt-1 text-[11px] text-slate-500">সবগুলোই এআই দ্বারা স্বয়ংক্রিয়</p>
+            <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900">{stats.totalOrders} টি</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">সবগুলোই এআই দ্বারা স্বয়ংক্রিয়</p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">এআই স্বয়ংক্রিয় রেট</span>
-              <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                <Bot className="w-5 h-5" />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">এআই স্বয়ংক্রিয় রেট</span>
+              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Bot className="w-4 h-4" />
               </div>
             </div>
-            <p className="mt-3 text-2xl font-black text-slate-900">{stats.autonomousRate}%</p>
-            <p className="mt-1 text-[11px] text-purple-600 font-semibold">কোনো হিউম্যান ইন্টারভেনশন ছাড়াই</p>
+            <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900">{stats.autonomousRate}%</p>
+            <p className="mt-0.5 text-[10px] text-purple-600 font-semibold">কোনো হিউম্যান ইন্টারভেনশন ছাড়াই</p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">সক্রিয় সোশ্যাল পেজ</span>
-              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Share2 className="w-5 h-5" />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">সক্রিয় সোশ্যাল পেজ</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Share2 className="w-4 h-4" />
               </div>
             </div>
-            <p className="mt-3 text-2xl font-black text-slate-900">{stats.activeChannels} টি চ্যানেল</p>
-            <p className="mt-1 text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+            <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900">{stats.activeChannels} টি চ্যানেল</p>
+            <p className="mt-0.5 text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               <span>সবগুলো কানেক্টেড</span>
             </p>

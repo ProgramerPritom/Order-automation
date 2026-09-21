@@ -109,6 +109,7 @@ CREATE TABLE "automation_health_logs" (
 CREATE TABLE "products" (
     "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "tenant_id" UUID NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+    "channel_id" UUID REFERENCES "channels"("id") ON DELETE SET NULL,
     "title" VARCHAR(255) NOT NULL,
     "description" TEXT,
     "category" VARCHAR(100),
@@ -116,6 +117,7 @@ CREATE TABLE "products" (
     "stock" INT NOT NULL DEFAULT 0,
     "sku" VARCHAR(100),
     "image_url" TEXT,
+    "rag_knowledge" TEXT,
     "embedding" vector(768),
     "is_active" BOOLEAN DEFAULT TRUE,
     "created_at" TIMESTAMPTZ DEFAULT NOW(),

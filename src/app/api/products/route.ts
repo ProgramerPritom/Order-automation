@@ -31,42 +31,63 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('q');
+    const channelIdParam = searchParams.get('channel_id');
     const { cursor, limit } = parsePaginationParams(req.url, 15, 100);
     const decodedCursor = decodeCursor(cursor);
 
-    // Total count for tenant
+    // Total count for tenant (with optional channel filter)
     let countSql = `SELECT count(*) FROM products WHERE tenant_id = $1`;
     const countParams: any[] = [auth.tenantId];
+    let countParamIdx = 2;
+
+    if (channelIdParam === 'global') {
+      countSql += ` AND channel_id IS NULL`;
+    } else if (channelIdParam && channelIdParam !== 'all') {
+      countSql += ` AND (channel_id = $${countParamIdx} OR channel_id IS NULL)`;
+      countParams.push(channelIdParam);
+      countParamIdx++;
+    }
+
     if (search && search.trim()) {
-      countSql += ` AND (title ILIKE $2 OR sku ILIKE $2 OR category ILIKE $2)`;
+      countSql += ` AND (title ILIKE $${countParamIdx} OR sku ILIKE $${countParamIdx} OR category ILIKE $${countParamIdx})`;
       countParams.push(`%${search.trim()}%`);
     }
     const countRes = await query(countSql, countParams);
     const totalCount = parseInt(countRes.rows[0].count, 10);
 
-    // Paginated query
+    // Paginated query with channel details
     let sql = `
-      SELECT id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge,
-             (embedding IS NOT NULL) as has_vector, created_at 
-      FROM products 
-      WHERE tenant_id = $1
+      SELECT p.id, p.tenant_id, p.channel_id, c.channel_name, c.platform,
+             p.title, p.description, p.category, p.price, p.stock, p.sku, p.image_url, 
+             p.is_active, p.rag_knowledge, (p.embedding IS NOT NULL) as has_vector, p.created_at 
+      FROM products p
+      LEFT JOIN channels c ON p.channel_id = c.id
+      WHERE p.tenant_id = $1
     `;
     const params: any[] = [auth.tenantId];
     let paramIndex = 2;
 
+    if (channelIdParam === 'global') {
+      sql += ` AND p.channel_id IS NULL`;
+    } else if (channelIdParam && channelIdParam !== 'all') {
+      sql += ` AND (p.channel_id = $${paramIndex} OR p.channel_id IS NULL)`;
+      params.push(channelIdParam);
+      paramIndex++;
+    }
+
     if (search && search.trim()) {
-      sql += ` AND (title ILIKE $${paramIndex} OR sku ILIKE $${paramIndex} OR category ILIKE $${paramIndex})`;
+      sql += ` AND (p.title ILIKE $${paramIndex} OR p.sku ILIKE $${paramIndex} OR p.category ILIKE $${paramIndex})`;
       params.push(`%${search.trim()}%`);
       paramIndex++;
     }
 
     if (decodedCursor) {
-      sql += ` AND (created_at, id) < ($${paramIndex}, $${paramIndex + 1})`;
+      sql += ` AND (p.created_at, p.id) < ($${paramIndex}, $${paramIndex + 1})`;
       params.push(decodedCursor.createdAt, decodedCursor.id);
       paramIndex += 2;
     }
 
-    sql += ` ORDER BY created_at DESC, id DESC LIMIT $${paramIndex};`;
+    sql += ` ORDER BY p.created_at DESC, p.id DESC LIMIT $${paramIndex};`;
     params.push(limit + 1);
 
     const res = await query(sql, params);
@@ -99,7 +120,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/products - Create new product with real Gemini vector embedding
+ * POST /api/products - Create new product with real Gemini vector embedding and channel scoping
  */
 export async function POST(req: NextRequest) {
   try {
@@ -109,13 +130,19 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { title, description, category, price, stock, sku, image_url, rag_knowledge } = body;
+    const { title, description, category, price, stock, sku, image_url, rag_knowledge, channel_id } = body;
 
     if (!title || price === undefined) {
       return NextResponse.json(
         { error: 'Title and price are required' },
         { status: 400 }
       );
+    }
+
+    // Resolve target channel
+    let targetChannelId: string | null = null;
+    if (channel_id && channel_id !== 'all' && channel_id !== 'global') {
+      targetChannelId = channel_id;
     }
 
     // Generate real 768-dimensional dense vector via Gemini embedding
@@ -132,11 +159,12 @@ export async function POST(req: NextRequest) {
     }
 
     const res = await query(
-      `INSERT INTO products (tenant_id, title, description, category, price, stock, sku, image_url, embedding, rag_knowledge)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9::text IS NOT NULL THEN $9::vector ELSE NULL END, $10)
-       RETURNING id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge, created_at;`,
+      `INSERT INTO products (tenant_id, channel_id, title, description, category, price, stock, sku, image_url, embedding, rag_knowledge)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10::text IS NOT NULL THEN $10::vector ELSE NULL END, $11)
+       RETURNING id, channel_id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge, created_at;`,
       [
         auth.tenantId,
+        targetChannelId,
         title,
         description || '',
         category || 'General',
@@ -149,8 +177,12 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    // Invalidate Redis catalog cache so next AI reply fetches fresh products instantly
+    // Invalidate Redis catalog caches so AI instantly gets updated product list
     await saasRedis.del(`catalog:${auth.tenantId}`);
+    await saasRedis.del(`catalog:${auth.tenantId}:all`);
+    if (targetChannelId) {
+      await saasRedis.del(`catalog:${auth.tenantId}:${targetChannelId}`);
+    }
 
     return NextResponse.json({
       success: true,
@@ -174,7 +206,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, title, description, category, price, stock, is_active, image_url, rag_knowledge } = body;
+    const { id, title, description, category, price, stock, is_active, image_url, rag_knowledge, channel_id } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Product ID is required' }, { status: 400 });
@@ -195,6 +227,11 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    let channelIdUpdateVal: any = undefined;
+    if (channel_id !== undefined) {
+      channelIdUpdateVal = (channel_id === 'all' || channel_id === 'global' || !channel_id) ? null : channel_id;
+    }
+
     const res = await query(
       `UPDATE products 
        SET 
@@ -207,9 +244,10 @@ export async function PUT(req: NextRequest) {
          image_url = CASE WHEN $7::text IS NOT NULL THEN $7::text ELSE image_url END,
          rag_knowledge = CASE WHEN $8::text IS NOT NULL THEN $8::text ELSE rag_knowledge END,
          embedding = CASE WHEN $9::text IS NOT NULL THEN $9::vector ELSE embedding END,
+         channel_id = CASE WHEN $12::boolean IS TRUE THEN $13::uuid ELSE channel_id END,
          updated_at = NOW()
        WHERE id = $10 AND tenant_id = $11
-       RETURNING id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge;`,
+       RETURNING id, channel_id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge;`,
       [
         title || null,
         description !== undefined ? description : null,
@@ -222,6 +260,8 @@ export async function PUT(req: NextRequest) {
         vectorString,
         id,
         auth.tenantId,
+        channel_id !== undefined,
+        channelIdUpdateVal,
       ]
     );
 
@@ -229,8 +269,12 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Invalidate Redis catalog cache so AI instantly gets updated stock/price
+    // Invalidate Redis catalog caches so AI instantly gets updated stock/price
     await saasRedis.del(`catalog:${auth.tenantId}`);
+    await saasRedis.del(`catalog:${auth.tenantId}:all`);
+    if (channelIdUpdateVal) {
+      await saasRedis.del(`catalog:${auth.tenantId}:${channelIdUpdateVal}`);
+    }
 
     return NextResponse.json({
       success: true,

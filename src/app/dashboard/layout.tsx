@@ -38,6 +38,7 @@ import {
   refreshTokenAndResume,
   setupFetchAuthInterceptor,
 } from '@/lib/session';
+import DashboardSkeleton from '@/components/ui/DashboardSkeleton';
 
 export default function DashboardLayout({
   children,
@@ -145,13 +146,35 @@ export default function DashboardLayout({
 
   if (!isAuthChecked) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white animate-bounce shadow-lg shadow-indigo-500/30">
-          <Bot className="w-6 h-6" />
+      <div className="h-screen max-h-screen overflow-hidden bg-slate-100 flex">
+        {/* Skeleton Sidebar */}
+        <aside className="hidden lg:flex lg:flex-col lg:w-64 h-screen bg-slate-900 border-r border-slate-800 shrink-0 p-4 space-y-4 no-scrollbar">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0 animate-pulse">
+              <Bot className="w-5 h-5" />
+            </div>
+            <div className="space-y-1.5">
+              <div className="h-4 w-28 bg-slate-800 rounded animate-pulse" />
+              <div className="h-2.5 w-16 bg-slate-800/80 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="space-y-2 pt-4">
+            {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <div key={i} className="h-9 rounded-xl bg-slate-800/60 animate-pulse" />
+            ))}
+          </div>
+        </aside>
+
+        {/* Content Area Skeleton */}
+        <div className="flex-1 flex flex-col h-screen min-w-0 overflow-hidden">
+          <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+            <div className="h-4 w-36 bg-slate-200 rounded animate-pulse" />
+            <div className="h-7 w-28 bg-slate-100 rounded-full animate-pulse" />
+          </header>
+          <main className="flex-1 overflow-y-auto p-4 sm:p-8 no-scrollbar">
+            <DashboardSkeleton />
+          </main>
         </div>
-        <p className="mt-4 text-xs font-bold text-slate-300 animate-pulse">
-          ড্যাশবোর্ড লোড হচ্ছে...
-        </p>
       </div>
     );
   }
@@ -233,7 +256,7 @@ export default function DashboardLayout({
       <aside
         className={`hidden lg:flex lg:flex-col ${
           isCollapsed ? 'lg:w-20' : 'lg:w-64'
-        } h-screen max-h-screen bg-slate-900 text-white border-r border-slate-800 shrink-0 transition-all duration-300 ease-in-out`}
+        } h-screen max-h-screen bg-slate-900 text-white border-r border-slate-800 shrink-0 transition-all duration-300 ease-in-out no-scrollbar overflow-hidden`}
       >
         {/* Brand Header */}
         <div className={`p-4 border-b border-slate-800 shrink-0 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
@@ -318,7 +341,7 @@ export default function DashboardLayout({
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
+        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto no-scrollbar">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -399,7 +422,7 @@ export default function DashboardLayout({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <nav className="flex-1 space-y-1.5 overflow-y-auto">
+            <nav className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (

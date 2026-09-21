@@ -67,6 +67,38 @@ body {
   background: #64748b;
 }
 
+/* Hide scrollbar for clean UI (Sidebar, Chips, Sliders) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+
+/* Dark container scrollbar fallback */
+.dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f172a;
+}
+.dark-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 6px;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* Print Styles for Invoice & Cash Memo */
 @media print {
   body {
