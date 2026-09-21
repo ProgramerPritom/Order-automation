@@ -13,6 +13,7 @@ interface ProcessCommentParams {
   mediaUrl?: string;
   permalinkUrl?: string;
   accessToken: string;
+  pageId?: string;
 }
 
 export async function processFacebookComment(params: ProcessCommentParams) {
@@ -28,6 +29,7 @@ export async function processFacebookComment(params: ProcessCommentParams) {
     mediaUrl,
     permalinkUrl,
     accessToken,
+    pageId: providedPageId,
   } = params;
 
   try {
@@ -169,7 +171,7 @@ ${productCatalog || '- Montessori Busy Board: ৳1250'}
     );
 
     // 5. Post Public Comment Reply via Meta Graph API
-    if (accessToken && accessToken !== 'mock_token') {
+    if (accessToken && accessToken !== 'mock_token' && accessToken.startsWith('EAA')) {
       try {
         const fbRes = await fetch(
           `https://graph.facebook.com/v19.0/${commentId}/comments?access_token=${accessToken}`,
@@ -190,10 +192,53 @@ ${productCatalog || '- Montessori Busy Board: ৳1250'}
       }
     }
 
+    // =========================================================================
+    // 6. Meta Private Reply: Open Direct 1-on-1 Messenger Inbox Thread
+    // =========================================================================
+    let resolvedPageId = providedPageId;
+    if (!resolvedPageId) {
+      const chRes = await query(`SELECT channel_identifier FROM channels WHERE id = $1;`, [channelId]);
+      if (chRes.rows.length > 0) {
+        resolvedPageId = chRes.rows[0].channel_identifier;
+      }
+    }
+
+    const privateReplyText = mappedProduct
+      ? `আসসালামু আলাইকুম ${customerName ? `${customerName} ` : ''}ভাইয়া/আপু! আমাদের পোস্টে "${mappedProduct.title}" সম্পর্কে কমেন্ট করার জন্য ধন্যবাদ।\n\nঅফার মূল্য মাত্র ৳${mappedProduct.price}। সম্পূর্ণ ক্যাশ অন ডেলিভারিতে চেক করে টাকা দেওয়ার সুযোগ আছে (অগ্রিম কোনো পেমেন্ট লাগবে না)।\n\nঅর্ডার করতে বা যেকোনো প্রশ্ন থাকলে এখানেই মেসেজে জানান!`
+      : `আসসালামু আলাইকুম ${customerName ? `${customerName} ` : ''}ভাইয়া/আপু! আমাদের ফেসবুক পোস্টে কমেন্ট করার জন্য আন্তরিক ধন্যবাদ। বিস্তারিত ও অফার মূল্যের জন্য আমরা ইনবক্সে যোগাযোগ করেছি। যেকোনো তথ্যের জন্য বা অর্ডার করতে এখনই রিপ্লাই দিন!`;
+
+    let privateReplySent = false;
+    if (resolvedPageId && accessToken && accessToken !== 'mock_token' && accessToken.startsWith('EAA')) {
+      try {
+        const privateRes = await fetch(
+          `https://graph.facebook.com/v19.0/${resolvedPageId}/messages?access_token=${accessToken}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipient: { comment_id: commentId },
+              message: { text: privateReplyText },
+            }),
+          }
+        );
+        if (privateRes.ok) {
+          privateReplySent = true;
+          console.log(`✅ [Graph API] Private Reply inbox message dispatched for comment ${commentId}`);
+        } else {
+          const errData = await privateRes.json();
+          console.warn('⚠️ Meta Graph API private reply error:', errData);
+        }
+      } catch (privErr: any) {
+        console.warn('Meta Private Reply call failed:', privErr.message);
+      }
+    }
+
     return {
       success: true,
       commentId,
       aiReplyText,
+      privateReplyText,
+      privateReplySent,
     };
   } catch (error: any) {
     console.error('processFacebookComment error:', error);

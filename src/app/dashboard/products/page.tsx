@@ -16,6 +16,10 @@ import {
   Layers,
   Trash2,
   Brain,
+  UploadCloud,
+  Image as ImageIcon,
+  X,
+  Loader2,
 } from 'lucide-react';
 
 interface Product {
@@ -46,7 +50,47 @@ export default function ProductsPage() {
   const [stock, setStock] = useState('25');
   const [description, setDescription] = useState('');
   const [ragKnowledge, setRagKnowledge] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('ফাইলের আকার সর্বোচ্চ ৫ মেগাবাইট (5MB) হতে পারবে।');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const token = getSessionToken();
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (res.ok && data.url) {
+        setImageUrl(data.url);
+        toast.success('ছবি সফলভাবে আপলোড হয়েছে!');
+      } else {
+        toast.error(data.error || 'ছবি আপলোড করতে সমস্যা হয়েছে।');
+      }
+    } catch (err: any) {
+      console.error('Image upload failed:', err);
+      toast.error('ছবি আপলোডে নেটওয়ার্ক সমস্যা হয়েছে।');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   // Product RAG Modal State
   const [ragModalOpen, setRagModalOpen] = useState(false);
@@ -126,6 +170,7 @@ export default function ProductsPage() {
           price,
           stock,
           description,
+          image_url: imageUrl || null,
           rag_knowledge: ragKnowledge.trim() || null,
         }),
       });
@@ -136,6 +181,7 @@ export default function ProductsPage() {
         setTitle('');
         setDescription('');
         setRagKnowledge('');
+        setImageUrl('');
         toast.success('নতুন পণ্য সফলভাবে যুক্ত হয়েছে!');
       } else {
         toast.error(data.error || 'পণ্য যুক্ত করতে ব্যর্থ হয়েছে।');
@@ -292,11 +338,17 @@ export default function ProductsPage() {
               {filteredProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-4 px-6 flex items-center gap-3">
-                    <img
-                      src={product.image_url}
-                      alt={product.title}
-                      className="w-11 h-11 rounded-xl object-cover border border-slate-200 shrink-0"
-                    />
+                    {product.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt={product.title}
+                        className="w-11 h-11 rounded-xl object-cover border border-slate-200 shrink-0 shadow-xs"
+                      />
+                    ) : (
+                      <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200 shrink-0">
+                        <Package className="w-5 h-5" />
+                      </div>
+                    )}
                     <div>
                       <p className="font-bold text-slate-900 line-clamp-1">{product.title}</p>
                       <p className="text-[11px] text-slate-400 line-clamp-1">{product.description}</p>
@@ -388,6 +440,74 @@ export default function ProductsPage() {
             </p>
 
             <form onSubmit={handleCreateProduct} className="mt-5 space-y-3.5 text-xs">
+              {/* Product Image Upload */}
+              <div>
+                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>পণ্যের ছবি (Product Image)</span>
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl('')}
+                      className="text-rose-500 hover:text-rose-700 flex items-center gap-1 text-[11px] font-semibold"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>ছবি সরান</span>
+                    </button>
+                  )}
+                </label>
+                
+                {imageUrl ? (
+                  <div className="relative w-full h-36 rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/30 overflow-hidden flex items-center justify-center group">
+                    <img
+                      src={imageUrl}
+                      alt="Uploaded Preview"
+                      className="w-full h-full object-contain p-1"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <label className="cursor-pointer px-3 py-1.5 bg-white text-slate-800 rounded-xl font-bold text-xs shadow-md hover:bg-slate-50 flex items-center gap-1.5">
+                        <UploadCloud className="w-4 h-4 text-indigo-600" />
+                        <span>ছবি পরিবর্তন করুন</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                          disabled={uploadingImage}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl cursor-pointer bg-slate-50/60 hover:bg-indigo-50/30 transition-all">
+                    {uploadingImage ? (
+                      <div className="flex flex-col items-center gap-2 text-indigo-600">
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <span className="font-semibold text-xs">ছবি আপলোড হচ্ছে...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                        <div className="w-9 h-9 mb-1.5 rounded-full bg-indigo-100/80 text-indigo-600 flex items-center justify-center">
+                          <UploadCloud className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs text-slate-700 font-bold">
+                          ক্লিক করে ছবি আপলোড করুন
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          PNG, JPG, WEBP (সর্বোচ্চ ৫ মেগাবাইট)
+                        </p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      disabled={uploadingImage}
+                    />
+                  </label>
+                )}
+              </div>
+
               <div>
                 <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                   পণ্যের শিরোনাম (Product Title)

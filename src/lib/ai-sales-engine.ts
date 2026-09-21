@@ -1,6 +1,15 @@
 import { query, getClient } from './db';
 import { saasRedis } from './redis';
 import { checkFaqCache, setFaqCache } from './faq-cache';
+import { searchCatalogSemantic } from './embeddings';
+import {
+  extractBangladeshiPhone,
+  extractPotentialAddress,
+  extractCustomerName,
+  evaluateOrderReadiness,
+  executeOrderCreation,
+  CustomerLead,
+} from './agent-skills/sales-agent';
 
 interface ProcessMessageParams {
   tenantId: string;
@@ -164,24 +173,71 @@ export async function processCustomerMessage(
       await saasRedis.set(shopCacheKey, shop, { ex: 3600 });
     }
 
-    const catalogCacheKey = `catalog:${tenantId}`;
-    let products = await saasRedis.get<any[]>(catalogCacheKey);
+    // =========================================================================
+    // 4. Progressive Customer Lead Tracking (Multi-Turn Working Memory)
+    // =========================================================================
+    const leadCacheKey = `saas_lead:${conversationId}`;
+    let activeLead = (await saasRedis.get<CustomerLead>(leadCacheKey)) || {};
 
-    if (!products) {
-      const prodRes = await query(
-        `SELECT id, title, price, stock, sku, description, rag_knowledge 
-         FROM products 
-         WHERE tenant_id = $1 AND is_active = TRUE 
-         ORDER BY stock DESC 
-         LIMIT 30;`,
-        [tenantId]
-      );
-      products = prodRes.rows;
-      // 1-hour TTL (refreshes automatically or invalidated on updates/orders)
-      await saasRedis.set(catalogCacheKey, products, { ex: 3600 });
+    // Auto-detect phone, name, and address from incoming customer message
+    const detectedPhone = extractBangladeshiPhone(messageText);
+    if (detectedPhone) {
+      activeLead.customer_phone = detectedPhone;
     }
 
-    const catalogText = products
+    const detectedAddress = extractPotentialAddress(messageText);
+    if (detectedAddress) {
+      activeLead.delivery_address = detectedAddress;
+    }
+
+    const detectedName = extractCustomerName(messageText);
+    if (detectedName) {
+      activeLead.customer_name = detectedName;
+    } else if (!activeLead.customer_name && customerName && customerName !== 'Facebook Customer' && customerName !== 'Facebook User' && customerName !== 'Customer') {
+      activeLead.customer_name = customerName;
+    }
+
+    // Evaluate order readiness and missing fields
+    const readiness = evaluateOrderReadiness(activeLead);
+    const capturedInfoText = [
+      `নাম: ${activeLead.customer_name || 'এখনও সংগৃহীত হয়নি'}`,
+      `ফোন নম্বর: ${activeLead.customer_phone || 'এখনও সংগৃহীত হয়নি'}`,
+      `ডেলিভারি ঠিকানা: ${activeLead.delivery_address || 'এখনও সংগৃহীত হয়নি'}`,
+    ].join(' | ');
+
+    const missingNotice = readiness.missingBengaliLabels.length > 0
+      ? `[অর্ডারের জন্য এখনও যা বাকি আছে]: ${readiness.missingBengaliLabels.join(', ')}`
+      : `[অর্ডারের সব তথ্য প্রস্তুত]: সব রিকোয়ার্ড ফিল্ড বিদ্যমান!`;
+
+    // =========================================================================
+    // 5. Dynamic Semantic RAG: Vector Search for Relevant Products
+    // =========================================================================
+    let semanticProducts: any[] = [];
+    try {
+      semanticProducts = await searchCatalogSemantic(tenantId, messageText, 3);
+    } catch (ragErr) {
+      console.warn('Semantic catalog search failed, falling back to cache:', ragErr);
+    }
+
+    let products: any[] | null = semanticProducts;
+    if (!products || products.length === 0) {
+      const catalogCacheKey = `catalog:${tenantId}`;
+      products = await saasRedis.get<any[]>(catalogCacheKey);
+      if (!products) {
+        const prodRes = await query(
+          `SELECT id, title, price, stock, sku, description, rag_knowledge 
+           FROM products 
+           WHERE tenant_id = $1 AND is_active = TRUE 
+           ORDER BY stock DESC 
+           LIMIT 15;`,
+          [tenantId]
+        );
+        products = prodRes.rows;
+        await saasRedis.set(catalogCacheKey, products, { ex: 3600 });
+      }
+    }
+
+    const catalogText = (products || [])
       .map(
         (p: any, i: number) =>
           `${i + 1}. [ID: ${p.id}] ${p.title} | মূল্য: ৳${p.price} | স্টক: ${p.stock} | বিবরণ: ${p.description || 'N/A'}${p.rag_knowledge ? ` | র্যাক নলেজ: ${p.rag_knowledge}` : ''}`
@@ -189,7 +245,7 @@ export async function processCustomerMessage(
       .join('\n');
 
     // =========================================================================
-    // 5. Build Empathetic, Non-Pushy AI System Prompt
+    // 6. Build Empathetic, Non-Pushy Agentic AI System Prompt
     // =========================================================================
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -228,72 +284,47 @@ ${mp.rag_knowledge ? `- পণ্যের বিস্তারিত এআই
 
     const systemPrompt = `
 [Role & Identity]:
-You are an expert sales representative, consultative advisor, and child psychology enthusiast working for "${shop.name}" — a premium online children's educational and activity toy store in Bangladesh.
-Your primary mission: Convert inquiries into confirmed sales so no customer or lead is lost. Always maintain high warmth, credibility, and proactive engagement.
+You are an expert consultative sales advisor and agentic bot for "${shop.name}" in Bangladesh.
+Your mission: Guide customer politely, consult on their questions using RAG product knowledge, and progressively collect missing order info to close sales without losing leads.
 
-[Product & Value Proposition Context]:
-We specialize in child brain development, Montessori, sensory, and educational activity toys (যেমন: Felt Busy Board, Wooden Counting Frames, Magnetic Learning Blocks, Puzzle Sets, Cognitive Skill Toys).
-Key Value Drivers:
-- "ব্রেইন ডেভেলপমেন্ট" (Brain Development, logic, problem-solving, cognitive growth).
-- "মোবাইল ও স্ক্রিন আসক্তি কমানো" (100% Screen-free independent play, rescuing kids from phones/tablets).
-- "ফাইন মোটর স্কিলস" (Fine Motor Skills, hand-eye coordination).
-
-[Store Knowledge & Delivery Policies]:
+[Store Policies & Delivery]:
 - শপের নাম: ${shop.name}
-- শপের বিবরণ: ${shop.about_shop}
-- ক্যাশ অন ডেলিভারি: সম্পূর্ণ ক্যাশ অন ডেলিভারি (পণ্য হাতে পেয়ে চেক করে টাকা পরিশোধ, অগ্রিম টাকা দেওয়ার কোনো প্রয়োজন নেই)।
-- ডেলিভারি চার্জ: ঢাকা সিটির ভেতরে ৳${shop.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${shop.delivery_outside_dhaka || 130}
+- ক্যাশ অন ডেলিভারি: সম্পূর্ণ ক্যাশ অন ডেলিভারি (পণ্য হাতে পেয়ে চেক করে মূল্য পরিশোধ, অগ্রিম টাকা দেওয়ার কোনো প্রয়োজন নেই)।
+- ডেলিভারি চার্জ: ঢাকা সিটিতে ৳${shop.delivery_inside_dhaka || 80}, ঢাকার বাইরে ৳${shop.delivery_outside_dhaka || 130}
 - ডেলিভারি সময়: ঢাকা ${shop.delivery_time_dhaka || '১-২ দিন'}, ঢাকার বাইরে ${shop.delivery_time_outside || '২-৪ দিন'}
-- রিটার্ন পলিসি: ${shop.return_policy || '৭ দিনের সহজ এক্সচেঞ্জ/রিটার্ন সুবিধা'}
-- হেল্পলাইন / সাপোর্ট: ${shop.support_phone || 'ইনবক্স মেসেজ'}
-- বিশেষ নীতিমালা: ${shop.custom_rules || 'অগ্রিম কোনো টাকা দিতে হবে না, পণ্য হাতে পেয়ে মূল্য পরিশোধ (ক্যাশ অন ডেলিভারি)।'}
+- রিটার্ন পলিসি: ${shop.return_policy || '৭ দিনের সহজ রিটার্ন পলিসি'}
+
+[কাস্টমারের বর্তমান লিড স্টেট (Captured Lead Info)]:
+${capturedInfoText}
+${missingNotice}
+
 ${mappedProductContext}
-[পণ্য ক্যাটালগ ও লাইভ স্টক]:
-${catalogText || 'বর্তমানে পণ্য তালিকায় তথ্য সংরক্ষিত আছে'}
+[পণ্য ক্যাটালগ ও র্যাক নলেজ (RAG Retrieved Products)]:
+${catalogText || 'পণ্য ক্যাটালগ সংরক্ষিত আছে'}
 
 [পূর্ববর্তী চ্যাট হিস্টোরি (Chat History)]:
 ${historyFormatted}
 
 [বর্তমান কাস্টমার বার্তা]: "${messageText}"
 
-[Core Behavior, Psychology & Conversion Rules (কঠোরভাবে অনুসরণীয়)]:
-1. Language & Warmth:
-   - অত্যন্ত অমায়িক, আন্তরিক ও জীবন্ত বাংলায় (Bangla script) কথা বলো। রোবোটিক বা যান্ত্রিক ভাষা সম্পূর্ণ পরিহার করো।
-   - কাস্টমারকে পরম শ্রদ্ধায় "ভাইয়া" বা "আপু" বলে সম্বোধন করো।
-
-2. The "No Dead-End" Rule (কোনো উত্তরের সমাপ্তি যেন থমকে না যায়):
-   - কখনোই শুধু পণ্যের দাম বা একক সংখ্যা লিখে থেমে যাবে না।
-   - উত্তরের গঠন সবসময় হবে:
-     [আন্তরিক কুশল বিনিময়] + [সংক্ষিপ্ত ভ্যালু প্রপোজিশন (ব্রেইন ডেভেলপমেন্ট / মোবাইল আসক্তি কমানো)] + [সঠিক মূল্য ও ক্যাশ অন ডেলিভারির সুবিধা] + [একটি এনগেজিং প্রশ্ন (যেমন বাচ্চার বয়স)]।
-
-3. Handling "Price? / দাম কত? / কত?":
-   - কাস্টমার দাম জানতে চাইলে প্রথমে মিষ্টিভাবে দাম স্পষ্টভাবে জানাও, পণ্যের মূল উপকারিতা (মোবাইল থেকে দূরে রেখে ব্রেইন শার্প করা) এক লাইনে স্মরণ করিয়ে দাও এবং সাথে সাথে বাচ্চার বয়স জানতে চাও।
-   - উদাহরণ: "আসসালামু আলাইকুম ভাইয়া/আপু! আমাদের এই চমৎকার ব্রেইন ডেভেলপমেন্ট টয়টির অফার মূল্য মাত্র [Price] টাকা। এটি বাচ্চাদের মোবাইল আসক্তি দূর করে নিজ থেকেই খেলায় মনোযোগী করতে দারুণ কাজ করে। আপনার সোনামণির বয়স কত ভাইয়া/আপু? বয়স অনুযায়ী এটি তার জন্য কতটা উপযোগী ও কার্যকরী হবে, তা আমি আপনাকে সুন্দরভাবে জানাতে পারব!"
-
-4. Scarcity & Gentle Urgency:
-   - কাস্টমার যখন পছন্দ করে বা আগ্রহ দেখায়, তখন হালকা আরজেন্সি তৈরি করো (যেমন: "আমাদের এই ব্যাচটির স্টক বেশ সীমিত ভাইয়া/আপু, খুব দ্রুত শেষ হয়ে যাচ্ছে")।
-
-5. Active Order Taking Skills (অর্ডার কনফার্ম করার পারদর্শিতা):
-   - কাস্টমার যখনই কিনতে চায় (যেমন: "নিতে চাই", "১টা পাঠান", "অর্ডার করব", "কীভাবে নিব?", "বুকিং দিন") — সাথে সাথে বিনয়ের সাথে বলো:
-     "অসংখ্য ধন্যবাদ ভাইয়া/আপু! আপনার সোনামণির জন্য অর্ডারটি নিশ্চিত করতে অনুগ্রহ করে আপনার:
-     ১. নাম
-     ২. সক্রিয় ১১ ডিজিটের মোবাইল নম্বর
-     ৩. পূর্ণ ডেলিভারি ঠিকানা (বাসা/রোড/এলাকা/জেলা)
-     লিখে জানিয়ে দিন। অগ্রিম কোনো টাকা দিতে হবে না, সম্পূর্ণ ক্যাশ অন ডেলিভারিতে পণ্য হাতে পেয়ে চেক করে টাকা দিতে পারবেন।"
-   - কাস্টমার যদি আংশিক তথ্য দেয় (যেমন শুধু ফোন নম্বর দিয়েছে কিন্তু ঠিকানা দেয়নি, অথবা শুধু ঠিকানা দিয়েছে কিন্তু ফোন দেয়নি) — তখন মিসিং তথ্যটি চেয়ে মিষ্টি করে বলো যাতে লিড ড্রপ না হয়।
-
-6. Order Confirmation ("is_order_confirmed": true):
-   - যখন কাস্টমার তার (১) নাম, (২) ১১ ডিজিটের বৈধ মোবাইল নম্বর (যেমন: 017/018/019/016/015/013...) এবং (৩) ডেলিভারি ঠিকানা প্রদান করবে:
+[Core Agentic Rules (কঠোরভাবে অনুসরণীয়)]:
+১. অমায়িক ও জীবন্ত বাংলায় কাস্টমারকে "ভাইয়া" বা "আপু" বলে সম্বোধন করো।
+২. কাস্টমার দাম জানতে চাইলে: মূল্য জানাও + ১ লাইনে উপকারিতা বলো + বয়স/প্রয়োজন জানতে চাও।
+৩. কাস্টমার যদি কিনতে চায় ("নিতে চাই", "অর্ডার করব", "১টা পাঠান", "কীভাবে নিব"):
+   - যদি কোনো তথ্য মিসিং থাকে (${readiness.missingBengaliLabels.join(', ')}):
+     - কাস্টমারকে আন্তরিক ধন্যবাদ দিয়ে শুধুমাত্র মিসিং তথ্যগুলো (${readiness.missingBengaliLabels.join(', ')}) চেয়ে নাও।
+     - আশ্বস্ত করো যে সম্পূর্ণ ক্যাশ অন ডেলিভারিতে চেক করে টাকা দিতে পারবে, অগ্রিম টাকা দিতে হবে না।
+     - এই মুহূর্তে "is_order_confirmed": false রাখবে।
+   - যদি কাস্টমার আংশিক তথ্য দেয় (যেমন শুধু ফোন নম্বর দিয়েছে কিন্তু নাম/ঠিকানা দেয়নি):
+     - নম্বরের জন্য ধন্যবাদ জানাও এবং মিষ্টি করে নাম ও ডেলিভারি ঠিকানা চেয়ে নাও।
+   - যখন নাম, ১১ ডিজিটের বৈধ মোবাইল নম্বর (013-019) এবং পূর্ণ ডেলিভারি ঠিকানা—এই ৩টি তথ্যই পাওয়া যাবে:
      - তখনই কেবল "is_order_confirmed": true করবে।
-     - "order_details"-এর সব ফিল্ড নির্ভুলভাবে পূর্ণ করবে (প্রোডাক্ট আইডি, টাইটেল, পরিমাণ, ইউনিট প্রাইজ, ডেলিভারি ফি এবং টোটাল অ্যামাউন্ট)।
-     - "reply_text"-এ কাস্টমারকে অত্যন্ত সুন্দর ও প্রফেশনাল কনফার্মেশন মেসেজ দেবে (অর্ডারটি গৃহীত হয়েছে, ক্যাশ অন ডেলিভারি, এবং মোট টাকার পরিমাণ উল্লেখ করে)।
-
-7. Output JSON Requirement:
-   - তোমার সম্পূর্ণ উত্তরটি অবশ্যই একটি বৈধ JSON অবজেক্ট হতে হবে। কোনো অতিরিক্ত টেক্সট বা মার্কডাউন ব্যাকটিক ছাড়া।
+     - "order_details" ফিল্ডগুলো নির্ভুলভাবে পূরণ করবে।
+     - reply_text-এ উষ্ণ অভিনন্দন ও অর্ডার কনফার্মেশন রিসিট মেসেজ দেবে।
 
 [আউটপুট JSON ফরম্যাট]:
 {
-  "reply_text": "কাস্টমারকে পাঠানোর মতো উষ্ণ, আকর্ষণীয় ও সেলস-ক্লোজিং বার্তা",
+  "reply_text": "কাস্টমারকে পাঠানোর মতো উষ্ণ বার্তা",
   "is_order_confirmed": true/false,
   "order_details": {
     "customer_name": "গ্রাহকের নাম",
@@ -349,7 +380,7 @@ ${historyFormatted}
       console.error('Failed to parse Gemini JSON output:', parseErr);
     }
 
-    const replyText =
+    let replyText =
       aiParsed?.reply_text ||
       'ধন্যবাদ আপনার বার্তার জন্য! আমাদের একজন প্রতিনিধি খুব শীঘ্রই আপনার সাথে যোগাযোগ করবেন।';
 
@@ -367,91 +398,79 @@ ${historyFormatted}
     // Update conversation timestamp
     await query(`UPDATE conversations SET updated_at = NOW() WHERE id = $1;`, [conversationId]);
 
-    // 7. Process Confirmed Order
+    // Merge Gemini extractions into active lead if detected
+    if (aiParsed?.order_details) {
+      const details = aiParsed.order_details;
+      if (details.customer_name && (!activeLead.customer_name || activeLead.customer_name === 'Facebook Customer')) {
+        activeLead.customer_name = details.customer_name;
+      }
+      if (details.customer_phone && !activeLead.customer_phone) {
+        const p = extractBangladeshiPhone(details.customer_phone);
+        if (p) activeLead.customer_phone = p;
+      }
+      if (details.delivery_address && !activeLead.delivery_address) {
+        activeLead.delivery_address = details.delivery_address;
+      }
+      if (details.product_id) activeLead.product_id = details.product_id;
+      if (details.product_title) activeLead.product_title = details.product_title;
+      if (details.unit_price) activeLead.unit_price = Number(details.unit_price);
+      if (details.quantity) activeLead.quantity = Number(details.quantity);
+      if (details.delivery_fee) activeLead.delivery_fee = Number(details.delivery_fee);
+      if (details.total_amount) activeLead.total_amount = Number(details.total_amount);
+    }
+
+    if (!activeLead.product_id && products && products.length > 0) {
+      activeLead.product_id = products[0].id;
+      activeLead.product_title = products[0].title;
+      activeLead.unit_price = Number(products[0].price);
+    }
+
+    // Save progressive lead working memory (24h TTL)
+    await saasRedis.set(leadCacheKey, activeLead, { ex: 86400 });
+
+    // Sync captured details to conversations ledger for instant dashboard visibility
+    if (activeLead.customer_name || activeLead.customer_phone) {
+      await query(
+        `UPDATE conversations 
+         SET customer_name = COALESCE($1, customer_name), 
+             customer_phone = COALESCE($2, customer_phone), 
+             updated_at = NOW() 
+         WHERE id = $3;`,
+        [activeLead.customer_name || null, activeLead.customer_phone || null, conversationId]
+      );
+    }
+
+    // 7. Process Confirmed Order via Agentic Execution Skill
     let orderCreated = false;
     let orderNumber: string | undefined;
     let orderId: string | undefined;
 
-    if (aiParsed?.is_order_confirmed && aiParsed.order_details?.customer_phone) {
-      const details = aiParsed.order_details;
-      const client = await getClient();
+    const finalReadiness = evaluateOrderReadiness(activeLead);
+    const hasBuyingIntent = /(?:অর্ডার|নিতে চাই|পাঠান|কিনব|বুকিং|order|buy)/i.test(`${historyFormatted} ${messageText}`);
 
-      try {
-        await client.query('BEGIN');
+    if ((aiParsed?.is_order_confirmed || hasBuyingIntent) && finalReadiness.isReady) {
+      const orderExec = await executeOrderCreation({
+        tenantId,
+        channelId,
+        lead: activeLead,
+        shop,
+      });
 
-        orderNumber = `KS-${Math.floor(100000 + Math.random() * 900000)}`;
-        const cName = details.customer_name || customerName || 'Valued Customer';
-        const cPhone = details.customer_phone;
-        const address = details.delivery_address || 'Address from chat';
-        const city = details.delivery_city || 'Dhaka';
-        const fee = Number(details.delivery_fee) || (city.toLowerCase().includes('dhaka') ? Number(shop.delivery_inside_dhaka) : Number(shop.delivery_outside_dhaka));
-        const subtotal = Number(details.unit_price || 0) * Number(details.quantity || 1);
-        const total = Number(details.total_amount) || subtotal + fee;
-        const profit = Math.round(subtotal * 0.35);
-
-        const orderInsertSql = `
-          INSERT INTO orders (
-            order_number, tenant_id, customer_name, customer_phone,
-            delivery_address, delivery_city, district, delivery_fee, 
-            subtotal, total_amount, status, channel_id, notes, 
-            courier_name, courier_status, fraud_score, capi_fired, estimated_profit
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, 
-            'AI Native Sales Engine', 'Pathao Courier', 'pending', 100, TRUE, $12
-          ) RETURNING id, order_number;
-        `;
-
-        const orderRes = await client.query(orderInsertSql, [
-          orderNumber,
-          tenantId,
-          cName,
-          cPhone,
-          address,
-          city,
-          city,
-          fee,
-          subtotal,
-          total,
-          channelId,
-          profit,
-        ]);
-
-        const newOrder = orderRes.rows[0];
-        orderId = newOrder.id;
-        orderNumber = newOrder.order_number;
+      if (orderExec.success) {
         orderCreated = true;
+        orderNumber = orderExec.orderNumber;
+        orderId = orderExec.orderId;
+        // Invalidate Redis lead cache after completed order
+        await saasRedis.del(leadCacheKey);
 
-        // Insert Order Item
-        await client.query(
-          `INSERT INTO order_items (order_id, product_id, product_title, unit_price, quantity, total_price)
-           VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            orderId,
-            details.product_id || null,
-            details.product_title || 'Product',
-            details.unit_price || subtotal,
-            details.quantity || 1,
-            subtotal,
-          ]
+        const cName = activeLead.customer_name || 'সম্মানিত ক্রেতা';
+        replyText = `আলহামদুলিল্লাহ ${cName} ভাইয়া/আপু! আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে।\n\n📦 অর্ডার নম্বর: #${orderNumber}\n🛒 পণ্য: ${activeLead.product_title || 'খেলনা'}\n📍 ডেলিভারি ঠিকানা: ${activeLead.delivery_address}\n\nসম্পূর্ণ ক্যাশ অন ডেলিভারিতে পণ্য হাতে পেয়ে চেক করে মূল্য পরিশোধ করতে পারবেন। ${shop.name}-এর সাথে থাকার জন্য ধন্যবাদ!`;
+
+        // Update stored AI message with final confirmation text
+        await query(
+          `UPDATE messages SET content = $1 WHERE conversation_id = $2 AND sender_type = 'ai' AND created_at >= NOW() - INTERVAL '10 seconds';`,
+          [replyText, conversationId]
         );
-
-        // Decrement Product Inventory if matched
-        if (details.product_id) {
-          await client.query(
-            `UPDATE products SET stock = GREATEST(0, stock - $1), updated_at = NOW() WHERE id = $2 AND tenant_id = $3;`,
-            [details.quantity || 1, details.product_id, tenantId]
-          );
-          // Invalidate cached catalog in Redis
-          await saasRedis.del(catalogCacheKey);
-        }
-
-        await client.query('COMMIT');
-        console.log(`🎉 [Native Engine] Order created: #${orderNumber} for ${cName} (${cPhone}) - ৳${total}`);
-      } catch (orderErr: any) {
-        await client.query('ROLLBACK');
-        console.error('Order creation transaction failed:', orderErr);
-      } finally {
-        client.release();
       }
     }
 

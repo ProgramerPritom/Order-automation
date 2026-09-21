@@ -11,6 +11,8 @@ async function getAuthTenant(req: NextRequest) {
   return verifyAccessToken(token);
 }
 
+import { searchCatalogSemantic } from '@/lib/embeddings';
+
 /**
  * POST /api/products/search - RAG Vector Semantic Search for customer queries
  */
@@ -22,30 +24,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { queryText } = body;
+    const { queryText, limit } = body;
 
     if (!queryText) {
       return NextResponse.json({ error: 'Query text is required' }, { status: 400 });
     }
 
-    // Hybrid Search: Text ILIKE match + pgvector similarity
-    const res = await query(
-      `SELECT id, title, description, category, price, stock, sku, image_url,
-              CASE 
-                WHEN title ILIKE $2 OR description ILIKE $2 THEN 0.95
-                ELSE 0.82
-              END as similarity
-       FROM products 
-       WHERE tenant_id = $1 AND is_active = TRUE
-       ORDER BY similarity DESC, stock DESC
-       LIMIT 5;`,
-      [auth.tenantId, `%${queryText}%`]
-    );
+    const results = await searchCatalogSemantic(auth.tenantId, queryText, limit || 5);
 
     return NextResponse.json({
       success: true,
       query: queryText,
-      results: res.rows,
+      results,
     });
   } catch (error: any) {
     console.error('Vector search error:', error);

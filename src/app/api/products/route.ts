@@ -17,6 +17,7 @@ async function getAuthTenant(req: NextRequest) {
 }
 
 import { parsePaginationParams, decodeCursor, encodeCursor } from '@/lib/pagination';
+import { generateProductVector } from '@/lib/embeddings';
 
 /**
  * GET /api/products - List products for tenant with cursor-based pagination
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/products - Create new product with mock/real vector embedding
+ * POST /api/products - Create new product with real Gemini vector embedding
  */
 export async function POST(req: NextRequest) {
   try {
@@ -117,14 +118,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate a valid 1536-dimensional vector for pgvector
-    // In production, this calls OpenAI text-embedding-3-small
-    const vector1536 = new Array(1536).fill(0).map(() => (Math.random() * 0.1).toFixed(6));
-    const vectorString = `[${vector1536.join(',')}]`;
+    // Generate real 768-dimensional dense vector via Gemini embedding
+    let vectorString: string | null = null;
+    try {
+      vectorString = await generateProductVector({
+        title,
+        description: description || '',
+        category: category || 'General',
+        rag_knowledge: rag_knowledge || null,
+      });
+    } catch (embedErr: any) {
+      console.warn('Embedding generation warning (will save without vector):', embedErr.message);
+    }
 
     const res = await query(
       `INSERT INTO products (tenant_id, title, description, category, price, stock, sku, image_url, embedding, rag_knowledge)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9::text IS NOT NULL THEN $9::vector ELSE NULL END, $10)
        RETURNING id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge, created_at;`,
       [
         auth.tenantId,
@@ -134,7 +143,7 @@ export async function POST(req: NextRequest) {
         parseFloat(price),
         parseInt(stock || '0', 10),
         sku || `SKU-${Date.now().toString().slice(-6)}`,
-        image_url || 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?auto=format&fit=crop&w=400&q=80',
+        image_url || null,
         vectorString,
         rag_knowledge || null,
       ]
@@ -155,7 +164,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * PUT /api/products - Update product details or stock
+ * PUT /api/products - Update product details, stock, image or knowledge
  */
 export async function PUT(req: NextRequest) {
   try {
@@ -165,10 +174,25 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, title, description, category, price, stock, is_active } = body;
+    const { id, title, description, category, price, stock, is_active, image_url, rag_knowledge } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Product ID is required' }, { status: 400 });
+    }
+
+    // Recompute vector embedding if semantic fields are being updated
+    let vectorString: string | null = null;
+    if (title || description !== undefined || rag_knowledge !== undefined) {
+      try {
+        vectorString = await generateProductVector({
+          title: title || '',
+          description: description || '',
+          category: category || '',
+          rag_knowledge: rag_knowledge || null,
+        });
+      } catch (embedErr: any) {
+        console.warn('Re-embedding warning on PUT:', embedErr.message);
+      }
     }
 
     const res = await query(
@@ -180,9 +204,12 @@ export async function PUT(req: NextRequest) {
          price = CASE WHEN $4::numeric IS NOT NULL THEN $4::numeric ELSE price END,
          stock = CASE WHEN $5::integer IS NOT NULL THEN $5::integer ELSE stock END,
          is_active = CASE WHEN $6::boolean IS NOT NULL THEN $6::boolean ELSE is_active END,
+         image_url = CASE WHEN $7::text IS NOT NULL THEN $7::text ELSE image_url END,
+         rag_knowledge = CASE WHEN $8::text IS NOT NULL THEN $8::text ELSE rag_knowledge END,
+         embedding = CASE WHEN $9::text IS NOT NULL THEN $9::vector ELSE embedding END,
          updated_at = NOW()
-       WHERE id = $7 AND tenant_id = $8
-       RETURNING id, title, description, category, price, stock, sku, image_url, is_active;`,
+       WHERE id = $10 AND tenant_id = $11
+       RETURNING id, title, description, category, price, stock, sku, image_url, is_active, rag_knowledge;`,
       [
         title || null,
         description !== undefined ? description : null,
@@ -190,6 +217,9 @@ export async function PUT(req: NextRequest) {
         price !== undefined ? parseFloat(price) : null,
         stock !== undefined ? parseInt(stock, 10) : null,
         is_active !== undefined ? is_active : null,
+        image_url !== undefined ? image_url : null,
+        rag_knowledge !== undefined ? rag_knowledge : null,
+        vectorString,
         id,
         auth.tenantId,
       ]
@@ -204,7 +234,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'পণ্য ও স্টক সফলভাবে আপডেট করা হয়েছে (ক্যাশ সিঙ্ক সম্পন্ন)',
+      message: 'পণ্য, স্টক ও ছবি সফলভাবে আপডেট করা হয়েছে (ক্যাশ সিঙ্ক সম্পন্ন)',
       product: res.rows[0],
     });
   } catch (error: any) {

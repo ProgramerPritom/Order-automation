@@ -116,7 +116,7 @@ CREATE TABLE "products" (
     "stock" INT NOT NULL DEFAULT 0,
     "sku" VARCHAR(100),
     "image_url" TEXT,
-    "embedding" vector(1536),
+    "embedding" vector(768),
     "is_active" BOOLEAN DEFAULT TRUE,
     "created_at" TIMESTAMPTZ DEFAULT NOW(),
     "updated_at" TIMESTAMPTZ DEFAULT NOW()
