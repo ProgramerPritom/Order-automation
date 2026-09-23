@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
+import crypto from 'crypto';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
@@ -21,11 +23,32 @@ export async function GET(req: NextRequest) {
 
   if (state) {
     try {
-      const stateData = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
-      tenantId = stateData.tenantId;
-      if (stateData.returnOrigin) returnOrigin = stateData.returnOrigin;
-      if (stateData.redirectUri) redirectUri = stateData.redirectUri;
-      if (stateData.platform) platform = stateData.platform;
+      const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_saas_default_2026';
+      if (state.includes('.')) {
+        const [b64Payload, sig] = state.split('.');
+        const expectedSig = crypto.createHmac('sha256', secret).update(b64Payload).digest('base64url');
+        
+        // Timing-safe verification
+        if (
+          Buffer.byteLength(sig) === Buffer.byteLength(expectedSig) &&
+          crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))
+        ) {
+          const stateData = JSON.parse(Buffer.from(b64Payload, 'base64url').toString('utf-8'));
+          tenantId = stateData.tenantId;
+          if (stateData.returnOrigin) returnOrigin = stateData.returnOrigin;
+          if (stateData.redirectUri) redirectUri = stateData.redirectUri;
+          if (stateData.platform) platform = stateData.platform;
+        } else {
+          console.warn('Invalid OAuth state signature detected');
+        }
+      } else {
+        // Fallback for unsigned legacy states
+        const stateData = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
+        tenantId = stateData.tenantId;
+        if (stateData.returnOrigin) returnOrigin = stateData.returnOrigin;
+        if (stateData.redirectUri) redirectUri = stateData.redirectUri;
+        if (stateData.platform) platform = stateData.platform;
+      }
     } catch (e) {
       console.warn('Failed to parse OAuth state:', e);
     }
@@ -41,8 +64,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const appId = process.env.META_APP_ID || '1088885870322128';
-    const appSecret = process.env.META_APP_SECRET || '';
+    const isWhatsApp = platform === 'whatsapp';
+    const appId = isWhatsApp
+      ? process.env.META_WHATSAPP_APP_ID || process.env.WHATSAPP_APP_ID || process.env.META_APP_ID || '1104583752103042'
+      : process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || '1088885870322128';
+
+    const appSecret = isWhatsApp
+      ? process.env.META_WHATSAPP_APP_SECRET || process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET || ''
+      : process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || '';
 
     // 1. Exchange code for User Access Token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(

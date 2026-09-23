@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { query } from '@/lib/db';
 import { enqueueWebhookJob } from '@/lib/message-queue';
 import { transcribeVoiceNote, identifyProductFromImage } from '@/lib/multimodal-ai';
@@ -32,8 +33,31 @@ export async function POST(req: NextRequest) {
   const start = Date.now();
 
   try {
-    const payload = await req.json();
-    console.log('🔔 [Incoming Meta Webhook]', JSON.stringify(payload, null, 2));
+    const rawBody = await req.text();
+    const signature = req.headers.get('x-hub-signature-256');
+
+    // Verify Meta X-Hub-Signature-256 if APP_SECRET is configured
+    const appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET;
+    if (appSecret) {
+      if (signature) {
+        const expectedSignature =
+          'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expectedSignature);
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+          console.warn('❌ [Meta Webhook] Invalid signature rejected');
+          return new Response('Unauthorized: Webhook signature mismatch', { status: 401 });
+        }
+      } else if (process.env.NODE_ENV === 'production') {
+        console.warn('❌ [Meta Webhook] Missing x-hub-signature-256 in production');
+        return new Response('Forbidden: Missing signature header', { status: 403 });
+      }
+    }
+
+    const payload = JSON.parse(rawBody || '{}');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔔 [Incoming Meta Webhook]', JSON.stringify(payload, null, 2));
+    }
 
     const entry = payload.entry?.[0];
     if (!entry) {

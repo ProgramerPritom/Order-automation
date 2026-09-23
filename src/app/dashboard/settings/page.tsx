@@ -363,24 +363,40 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Tab 3: Subscription & 7-Day Trial */}
+        {/* Tab 3: Subscription & Automated Billing */}
         {activeTab === 'subscription' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm space-y-6">
-            <h3 className="font-extrabold text-sm text-slate-900 border-b border-slate-100 pb-3">
-              সাবস্ক্রিপশন প্ল্যান ও ট্রায়াল স্ট্যাটাস
-            </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  সাবস্ক্রিপশন প্ল্যান ও অটোমেটেড বিলিং
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  বিকাশ, নগদ, রকেট, ডেবিট/ক্রেডিট কার্ড এবং আমারপে (Aamarpay) এর মাধ্যমে অটোমেটেড রিনিউয়াল
+                </p>
+              </div>
+            </div>
 
-            <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            {/* Live Status Banner */}
+            <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-indigo-950/20">
               <div>
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 mb-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>৭ দিনের ফ্রি ট্রায়াল পলিসি সক্রিয়</span>
+                  <span>
+                    {subData?.status === 'active'
+                      ? 'অ্যাক্টিভ পেইড প্যাকেজ'
+                      : subData?.status === 'past_due'
+                      ? '⚠️ গ্রেস পিরিয়ড চলছে'
+                      : subData?.status === 'suspended'
+                      ? '⛔ অ্যাকাউন্ট স্থগিত'
+                      : '৭ দিনের ফ্রি ট্রায়াল সক্রিয়'}
+                  </span>
                 </div>
-                <h4 className="text-xl font-black">
-                  {subData?.plan ? `${subData.plan.toUpperCase()} প্যাকেজ` : 'Pro প্যাকেজ'}
+                <h4 className="text-xl font-black capitalize">
+                  {subData?.plan ? `${subData.plan} প্যাকেজ` : 'Pro প্যাকেজ'}
                 </h4>
                 <p className="text-xs text-indigo-200 mt-1">
-                  {subData?.evaluation?.message || '৭ দিনের ফ্রি ট্রায়াল সচল রয়েছে'}
+                  {subData?.evaluation?.message || 'সার্ভিস সচল ও সক্রিয় রয়েছে'}
                 </p>
               </div>
 
@@ -389,22 +405,158 @@ export default function SettingsPage() {
                 <p className="text-3xl font-black text-amber-400">
                   {subData?.evaluation?.daysRemaining ?? 7} দিন
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">রিনিউয়াল প্রয়োজন নেই</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {subData?.status === 'active' ? 'চলতি সাইকেল সক্রিয়' : 'পেমেন্ট রিনিউ প্রয়োজন'}
+                </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                <p className="text-slate-500 font-semibold">মাসিক অর্ডার সীমা</p>
-                <p className="text-base font-extrabold text-slate-900 mt-1">আনলিমিটেড অর্ডার</p>
-              </div>
-              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                <p className="text-slate-500 font-semibold">এআই মেসেজ সাপোর্ট</p>
-                <p className="text-base font-extrabold text-emerald-600 mt-1">২৪/৭ সচল</p>
-              </div>
-              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                <p className="text-slate-500 font-semibold">সোশ্যাল চ্যানেল কানেক্ট</p>
-                <p className="text-base font-extrabold text-slate-900 mt-1">সর্বোচ্চ ৫টি পেজ</p>
+            {/* Plan Upgrade & Renewal Options */}
+            <div>
+              <h4 className="font-extrabold text-xs text-slate-900 mb-3 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                <span>মাসিক প্যাকেজ বেছে নিন ও তাৎক্ষণিক রিনিউ করুন</span>
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Starter Plan */}
+                <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${subData?.plan === 'starter' ? 'border-indigo-600 bg-indigo-50/40 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-slate-900 text-sm">Starter</span>
+                      <span className="text-xs font-black text-indigo-600">৳২,৪৯০/মাস</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">ছোট অনলাইন শপ ও নতুন ফেসবুক পেজের জন্য</p>
+                    <ul className="mt-3 space-y-1.5 text-[11px] text-slate-600">
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>১টি ফেসবুক পেজ</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>৫০০ অর্ডার কোটা/মাস</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>২৪/৭ বাংলা এআই চ্যাটবট</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const token = localStorage.getItem('accessToken');
+                        const res = await fetch('/api/billing/checkout', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ plan: 'starter', gateway: 'aamarpay' }),
+                        });
+                        const d = await res.json();
+                        if (d.paymentUrl) window.location.href = d.paymentUrl;
+                      } catch (e) {}
+                    }}
+                    className="mt-4 w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all text-center"
+                  >
+                    Starter রিনিউ / আপগ্রেড
+                  </button>
+                </div>
+
+                {/* Pro Plan */}
+                <div className="p-5 rounded-2xl border-2 border-indigo-600 bg-gradient-to-b from-indigo-50/50 to-white shadow-md shadow-indigo-600/10 flex flex-col justify-between relative overflow-hidden">
+                  <div className="absolute top-2 right-2 bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    জনপ্রিয়
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-slate-900 text-sm">Pro (সর্বাধিক জনপ্রিয়)</span>
+                      <span className="text-xs font-black text-indigo-600">৳৪,৯৯০/মাস</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">সব চ্যানেলের জন্য স্বয়ংক্রিয় এআই ও আনলিমিটেড অর্ডার</p>
+                    <ul className="mt-3 space-y-1.5 text-[11px] text-slate-600">
+                      <li className="flex items-center gap-1.5 font-semibold text-slate-900">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                        <span>৩টি চ্যানেল (FB/Insta/WhatsApp)</span>
+                      </li>
+                      <li className="flex items-center gap-1.5 font-semibold text-emerald-700">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>আনলিমিটেড অর্ডার ও মেসেজ</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                        <span>ভয়েস ও ভিশন মাল্টিমোডাল এআই</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                        <span>কুরিয়ার ফ্রড প্রোটেকশন ও মেটা CAPI</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const token = localStorage.getItem('accessToken');
+                        const res = await fetch('/api/billing/checkout', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ plan: 'pro', gateway: 'aamarpay' }),
+                        });
+                        const d = await res.json();
+                        if (d.paymentUrl) window.location.href = d.paymentUrl;
+                      } catch (e) {}
+                    }}
+                    className="mt-4 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition-all text-center"
+                  >
+                    Pro প্ল্যান অ্যাক্টিভ করুন (৳৪,৯৯০)
+                  </button>
+                </div>
+
+                {/* Business Plan */}
+                <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${subData?.plan === 'business' ? 'border-indigo-600 bg-indigo-50/40 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-slate-900 text-sm">Enterprise / Business</span>
+                      <span className="text-xs font-black text-indigo-600">৳৯,৯৯০/মাস</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">বড় ব্র্যান্ড ও মাল্টি-এজেন্ট শপের জন্য</p>
+                    <ul className="mt-3 space-y-1.5 text-[11px] text-slate-600">
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>৫টি পর্যন্ত চ্যানেল</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>ডেডিকেটেড একাউন্ট ম্যানেজার</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span>কাস্টম প্রম্পট ও এআই টিউনিং</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const token = localStorage.getItem('accessToken');
+                        const res = await fetch('/api/billing/checkout', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ plan: 'business', gateway: 'aamarpay' }),
+                        });
+                        const d = await res.json();
+                        if (d.paymentUrl) window.location.href = d.paymentUrl;
+                      } catch (e) {}
+                    }}
+                    className="mt-4 w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all text-center"
+                  >
+                    Enterprise বেছে নিন
+                  </button>
+                </div>
               </div>
             </div>
           </div>

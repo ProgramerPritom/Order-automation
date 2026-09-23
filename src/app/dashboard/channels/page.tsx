@@ -673,8 +673,8 @@ export default function ChannelsPage() {
         </button>
       </div>
 
-      {/* Modern Quick-Connect Channel Action Hub */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
+      {/* Modern Quick-Connect Channel Action Hub (4 Channels: FB, WA Cloud, IG, WA QR) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {/* Facebook Page Card */}
         <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm transition-all flex flex-col justify-between group">
           <div className="flex items-start justify-between gap-3">
@@ -686,7 +686,7 @@ export default function ChannelsPage() {
               </div>
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">ফেসবুক পেজ</h3>
-                <p className="text-[11px] text-slate-500">মেসেঞ্জার ও পোস্ট এআই রিপ্লাই</p>
+                <p className="text-[11px] text-slate-500">মেসেঞ্জার ও পোস্ট এআই</p>
               </div>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">
@@ -706,6 +706,42 @@ export default function ChannelsPage() {
           </div>
         </div>
 
+        {/* WhatsApp Cloud API Card (Meta Official Cloud API) */}
+        <div className="bg-white rounded-2xl p-4 border border-emerald-200/80 shadow-xs hover:border-emerald-400 hover:shadow-sm transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50" />
+          <div className="flex items-start justify-between gap-3 relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">হোয়াটসঅ্যাপ API</h3>
+                <p className="text-[11px] text-slate-500">মেটা ক্লাউড এআই বট</p>
+              </div>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">
+              অফিসিয়াল API
+            </span>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between relative z-10">
+            <span className="text-[11px] text-slate-500 font-medium">ক্লাউড অটোমেশন</span>
+            <button
+              onClick={() => {
+                setPlatform('whatsapp');
+                setChannelName('Growkins WhatsApp AI');
+                setChannelIdentifier('1378964261959051');
+                setAccessToken('');
+                setModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm shadow-emerald-500/20 transition-all cursor-pointer"
+            >
+              <span>কানেক্ট করুন</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
         {/* Instagram Card */}
         <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs hover:border-pink-300 hover:shadow-sm transition-all flex flex-col justify-between group">
           <div className="flex items-start justify-between gap-3">
@@ -716,8 +752,8 @@ export default function ChannelsPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900">ইনস্টাগ্রাম অ্যাকাউন্ট</h3>
-                <p className="text-[11px] text-slate-500">ডিএম ও কমেন্ট অটোমেশন</p>
+                <h3 className="text-sm font-extrabold text-slate-900">ইনস্টাগ্রাম</h3>
+                <p className="text-[11px] text-slate-500">ডিএম ও কমেন্ট অটো</p>
               </div>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 text-[10px] font-bold border border-pink-100">
@@ -726,7 +762,7 @@ export default function ChannelsPage() {
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] text-slate-500 font-medium">প্রফেশনাল অ্যাকাউন্ট</span>
+            <span className="text-[11px] text-slate-500 font-medium">প্রফেশনাল আইডি</span>
             <button
               onClick={() => {
                 setPlatform('instagram');
@@ -743,17 +779,17 @@ export default function ChannelsPage() {
           </div>
         </div>
 
-        {/* WhatsApp Card */}
-        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs hover:border-emerald-300 hover:shadow-sm transition-all flex flex-col justify-between group">
+        {/* WhatsApp Web (QR) Card */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs hover:border-teal-300 hover:shadow-sm transition-all flex flex-col justify-between group">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 border border-teal-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                 <QrCode className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">হোয়াটসঅ্যাপ ওয়েব</h3>
                 <p className="text-[11px] text-slate-500">
-                  {botStatus === 'connected' ? `সংযুক্ত: +${connectedPhone}` : 'কিউআর কোড স্ক্যান করে লাইভ বট'}
+                  {botStatus === 'connected' ? `+${connectedPhone}` : 'QR কোড স্ক্যান বট'}
                 </p>
               </div>
             </div>
@@ -1665,18 +1701,18 @@ export default function ChannelsPage() {
 
                   <div>
                     <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      WhatsApp বিজনেস মোবাইল নম্বর
+                      মেটা Phone Number ID (বা বিজনেস মোবাইল নম্বর)
                     </label>
                     <input
                       type="text"
                       required
                       value={channelIdentifier}
                       onChange={(e) => setChannelIdentifier(e.target.value)}
-                      placeholder="যেমন: 01712345678"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      placeholder="যেমন: 1378964261959051 বা 01581493594"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 font-mono font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     />
                     <p className="text-[10px] text-slate-400 mt-1">
-                      নম্বরটি আপনার পেজের সাথে যুক্ত নম্বর অথবা যেকোনো সক্রিয় হোয়াটসঅ্যাপ নম্বর হতে পারে।
+                      মেটা ডেভেলপার ড্যাশবোর্ড থেকে প্রাপ্ত <b>Phone Number ID</b> অথবা সক্রিয় হোয়াটসঅ্যাপ নম্বর প্রদান করুন।
                     </p>
                   </div>
 
@@ -1689,39 +1725,27 @@ export default function ChannelsPage() {
                       required
                       value={channelName}
                       onChange={(e) => setChannelName(e.target.value)}
-                      placeholder="যেমন: My Shop WhatsApp"
+                      placeholder="যেমন: Growkins WhatsApp AI"
                       className="w-full p-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     />
                   </div>
 
-                  {/* Advanced Collapsible Accordion */}
+                  {/* Advanced Meta Token Accordion */}
                   <div className="pt-1">
                     <button
                       type="button"
                       onClick={() => setShowAdvancedMeta(!showAdvancedMeta)}
-                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1 cursor-pointer"
                     >
                       <span>{showAdvancedMeta ? '▾' : '▸'}</span>
-                      <span>মেটা ক্লাউড এপিআই সেটিংস (ঐচ্ছিক/ডেভেলপারদের জন্য)</span>
+                      <span>কাস্টম এক্সেস টোকেন সেটিংস (ঐচ্ছিক)</span>
                     </button>
 
                     {showAdvancedMeta && (
-                      <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3 animate-in fade-in">
+                      <div className="mt-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 animate-in fade-in">
                         <div>
                           <label className="block text-[10px] font-bold text-slate-600 uppercase">
-                            Phone Number ID (Optional)
-                          </label>
-                          <input
-                            type="text"
-                            value={channelIdentifier}
-                            onChange={(e) => setChannelIdentifier(e.target.value)}
-                            placeholder="যেমন: 10892746198"
-                            className="w-full p-2 rounded-lg border border-slate-200 text-xs font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-600 uppercase">
-                            Permanent Access Token (Optional)
+                            Meta Permanent / System User Access Token (Optional)
                           </label>
                           <input
                             type="password"
@@ -1730,6 +1754,9 @@ export default function ChannelsPage() {
                             placeholder="EAA..."
                             className="w-full p-2 rounded-lg border border-slate-200 text-xs font-mono"
                           />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            খালি রাখলে আমাদের ব্যাকএন্ডের মাস্টার মেটা টোকেন স্বয়ংক্রিয়ভাবে ব্যবহৃত হবে।
+                          </p>
                         </div>
                       </div>
                     )}

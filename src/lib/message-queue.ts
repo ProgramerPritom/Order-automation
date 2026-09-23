@@ -1,6 +1,7 @@
 import { saasRedis } from './redis';
 import { processCustomerMessage } from './ai-sales-engine';
 import { processFacebookComment } from './ai-comment-engine';
+import { captureException } from './observability';
 
 export interface QueueJob {
   id: string;
@@ -106,6 +107,18 @@ export async function triggerQueueWorker() {
           await saasRedis.set(`job:${jobId}`, job, { ex: 86400 * 7 });
           await saasRedis.lpush(DLQ_KEY, jobId);
           console.error(`🚨 [DLQ Alert] Job ${jobId} exhausted all ${job.maxAttempts} attempts. Sent to DLQ.`);
+
+          // Real-time incident alert
+          captureException(
+            new Error(`Message Queue Job ${jobId} exhausted retries (${job.lastError || 'Unknown'})`),
+            {
+              route: 'message-queue:dlq',
+              tenantId: job.payload?.tenantId,
+              channelId: job.payload?.channelId,
+              extra: { jobId, type: job.type },
+            },
+            'critical'
+          ).catch(() => {});
         }
       }
     }

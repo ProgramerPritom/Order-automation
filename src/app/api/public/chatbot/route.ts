@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { askGemini } from '@/lib/gemini';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,15 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || 'anonymous';
+    const rateLimit = await checkRateLimit(`public_chatbot:${ip}`, 15, 60);
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: 'অতিরিক্ত রিকোয়েস্ট পাঠানো হয়েছে। দয়া করে ১ মিনিট পর আবার চেষ্টা করুন।' },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { message } = body;
 

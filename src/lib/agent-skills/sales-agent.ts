@@ -32,13 +32,36 @@ export interface AgenticState {
 }
 
 /**
+ * Converts Bengali digits (০, ১, ২, ৩, ৪, ৫, ৬, ৭, ৮, ৯) to standard Arabic numerals (0-9)
+ */
+export function convertBengaliToEnglishNumerals(text: string): string {
+  if (!text) return '';
+  const bnToEnMap: Record<string, string> = {
+    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
+  };
+  return text.replace(/[০-৯]/g, (char) => bnToEnMap[char] || char);
+}
+
+/**
  * Validates and extracts Bangladeshi 11-digit mobile number
+ * Supports:
+ * - Bengali digits: ০১৭১২৩৪৫৬৭৮
+ * - Standard digits with country code: +8801712345678, 8801712345678
+ * - Banglish formats: 01712-345678, 01712 345678, 01712.345678
  */
 export function extractBangladeshiPhone(text: string): string | null {
   if (!text) return null;
-  // Match 013, 014, 015, 016, 017, 018, 019 with optional country code (+88 or 88)
+
+  // Convert any Bengali numerals first
+  const normalizedText = convertBengaliToEnglishNumerals(text);
+
+  // Remove standard formatting separators between digits
+  const cleanSeparators = normalizedText.replace(/(\d)[\s\-\.\/](\d)/g, '$1$2').replace(/(\d)[\s\-\.\/](\d)/g, '$1$2');
+
+  // Match 013, 014, 015, 016, 017, 018, 019 with optional country code
   const phoneRegex = /(?:(?:\+|00)?880|0)?(1[3-9]\d{8})\b/;
-  const match = text.match(phoneRegex);
+  const match = cleanSeparators.match(phoneRegex);
   if (match && match[1]) {
     return `0${match[1]}`;
   }
@@ -46,37 +69,55 @@ export function extractBangladeshiPhone(text: string): string | null {
 }
 
 /**
- * Extract customer name from Bengali/English text patterns
+ * Extract customer name from Bengali, English, and Banglish text patterns
+ * Supports:
+ * - "আমার নাম রোহান", "নাম: রহিম"
+ * - "amar nam Rohan", "amar name Tanvir", "nam holo Pritom", "my name is..."
  */
 export function extractCustomerName(text: string): string | null {
   if (!text) return null;
-  const match = text.match(/(?:আমার\s*নাম|name\s*is|name:?|নাম:?)\s*([a-zA-Z\u0980-\u09FF\s]{2,30}?)(?:,|\.|\n|$|ঠিকানা|address|ফোন|phone|মোবাইল)/i);
+
+  // Pattern 1: Explicit labels (আমার নাম, amar nam, amar name, my name is, nam:, name:)
+  const match = text.match(
+    /(?:আমার\s*নাম|amar\s*name\s*is|amar\s*nam\s*holo|amar\s*name\s*holo|amar\s*nam|amar\s*name|my\s*name\s*is|name:?|নাম:?|nam:?)\s*[:=–-]?\s*([a-zA-Z\u0980-\u09FF\s]{2,30}?)(?:,|\.|\n|$|ঠিকানা|address|thikana|ফোন|phone|mobile|মোবাইল)/i
+  );
+
   if (match && match[1]) {
     const candidate = match[1].trim();
-    if (candidate.length >= 2 && !candidate.includes('ঠিকানা') && !candidate.includes('ফোন')) {
+    const blacklist = ['ঠিকানা', 'address', 'thikana', 'ফোন', 'phone', 'mobile', 'dhaka', 'basa', 'road'];
+    if (candidate.length >= 2 && !blacklist.some((b) => candidate.toLowerCase().includes(b))) {
       return candidate;
     }
   }
+
   return null;
 }
 
 /**
- * Heuristic detector for customer address keywords in Bengali or English
+ * Heuristic detector for customer address keywords in Bengali, English, and Banglish
+ * Detects divisions, districts, thanas, roads, house numbers, flats, and Banglish location slang
  */
 export function extractPotentialAddress(text: string): string | null {
   if (!text) return null;
 
-  // Check explicit address prefix first: "ঠিকানা: বাসা ১২, ধানমন্ডি"
-  const explicitMatch = text.match(/(?:ঠিকানা|address)\s*[:=–-]?\s*(.+)$/i);
+  // Check explicit address prefix first: "ঠিকানা: বাসা ১২", "thikana: mirpur 10", "address: House 5, Road 2"
+  const explicitMatch = text.match(/(?:ঠিকানা|address|thikana|amar\s*address|amar\s*thikana)\s*[:=–-]?\s*(.+)$/i);
   if (explicitMatch && explicitMatch[1] && explicitMatch[1].trim().length >= 5) {
     return explicitMatch[1].trim();
   }
 
   const addressIndicators = [
-    'বাসা', 'রোড', 'বাড়ি', 'লেন', 'থানা', 'জেলা', 'গ্রাম', 'সেক্টর', 'ব্লক',
-    'ঢাকা', 'চট্টগ্রাম', 'সিলেট', 'রাজশাহী', 'খুলনা', 'বরিশাল', 'রংপুর', 'ময়মনসিংহ',
+    // Bengali locations & keywords
+    'বাসা', 'রোড', 'বাড়ি', 'লেন', 'থানা', 'জেলা', 'গ্রাম', 'সেক্টর', 'ব্লক', 'ফ্ল্যাট',
+    'ঢাকা', 'চট্টগ্রাম', 'সিলেট', 'রাজশাহী', 'খুলনা', 'বরিশাল', 'রংপুর', 'ময়মনসিংহ', 'কুমিল্লা',
     'ধানমন্ডি', 'মিরপুর', 'উত্তরা', 'গুলশান', 'বনানী', 'মোহাম্মদপুর', 'বাড্ডা', 'গাজীপুর', 'নারায়ণগঞ্জ',
-    'house', 'road', 'sector', 'block', 'thana', 'dist', 'dhaka', 'chittagong', 'sylhet', 'flat', 'floor'
+    'সাভার', 'কেরানীগঞ্জ', 'বগুড়া', 'যশোর', 'কক্সবাজার', 'ফেনী', 'নোয়াখালী',
+    // Banglish & English keywords
+    'house', 'road', 'sector', 'block', 'thana', 'dist', 'district', 'flat', 'floor', 'lane',
+    'dhaka', 'dhk', 'chittagong', 'ctg', 'sylhet', 'rajshahi', 'khulna', 'barisal', 'rangpur',
+    'mymensingh', 'cumilla', 'comilla', 'gazipur', 'savar', 'narayanganj', 'keraniganj', 'bogra', 'bogura',
+    'mirpur', 'uttara', 'dhanmondi', 'gulshan', 'banani', 'mohammadpur', 'badda', 'jatrabari', 'motijheel',
+    'basa', 'bari', 'gram', 'jela', 'thikana'
   ];
 
   const lower = text.toLowerCase();
@@ -149,65 +190,45 @@ export async function executeOrderCreation(params: {
     const unitPrice = Number(lead.unit_price || 0);
     const qty = Number(lead.quantity || 1);
     const subtotal = unitPrice * qty;
-    const total = lead.total_amount || (subtotal + fee);
-    const profit = Math.round(subtotal * 0.35);
+    const total = subtotal + fee;
 
-    const orderInsertSql = `
-      INSERT INTO orders (
-        order_number, tenant_id, customer_name, customer_phone,
-        delivery_address, delivery_city, district, delivery_fee, 
-        subtotal, total_amount, status, channel_id, notes, 
-        courier_name, courier_status, fraud_score, capi_fired, estimated_profit
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, 
-        'Agentic AI Sales Engine (Autonomous Skill)', 'Steadfast / Pathao', 'pending', 100, TRUE, $12
-      ) RETURNING id, order_number;
-    `;
-
-    const orderRes = await client.query(orderInsertSql, [
-      orderNumber,
-      tenantId,
-      cName,
-      cPhone,
-      address,
-      city,
-      city,
-      fee,
-      subtotal,
-      total,
-      channelId,
-      profit,
-    ]);
-
-    const newOrder = orderRes.rows[0];
-    const orderId = newOrder.id;
-
-    // Insert Order Item
-    await client.query(
-      `INSERT INTO order_items (order_id, product_id, product_title, unit_price, quantity, total_price)
-       VALUES ($1, $2, $3, $4, $5, $6);`,
-      [
-        orderId,
-        lead.product_id || null,
-        lead.product_title || 'General Product',
-        unitPrice,
-        qty,
-        subtotal,
-      ]
+    const orderRes = await client.query(
+      `INSERT INTO orders (
+        tenant_id, channel_id, order_number, customer_name, customer_phone, 
+        delivery_address, delivery_city, subtotal, delivery_fee, total_amount, 
+        status, courier_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 'unassigned')
+      RETURNING id;`,
+      [tenantId, channelId, orderNumber, cName, cPhone, address, city, subtotal, fee, total]
     );
 
-    // Decrement product inventory atomically
+    const orderId = orderRes.rows[0].id;
+
     if (lead.product_id) {
       await client.query(
-        `UPDATE products SET stock = GREATEST(0, stock - $1), updated_at = NOW() 
+        `INSERT INTO order_items (order_id, product_id, title, quantity, unit_price, total_price)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [orderId, lead.product_id, lead.product_title || 'Item', qty, unitPrice, subtotal]
+      );
+
+      // Decrement inventory stock atomically
+      await client.query(
+        `UPDATE products 
+         SET stock = GREATEST(0, stock - $1), updated_at = NOW() 
          WHERE id = $2 AND tenant_id = $3;`,
         [qty, lead.product_id, tenantId]
       );
-      await saasRedis.del(`catalog:${tenantId}`);
     }
 
+    // Increment tenant's monthly order count
+    await client.query(
+      `UPDATE tenants 
+       SET orders_count_current_month = COALESCE(orders_count_current_month, 0) + 1, updated_at = NOW() 
+       WHERE id = $1;`,
+      [tenantId]
+    );
+
     await client.query('COMMIT');
-    console.log(`🎉 [Agentic Skill] Autonomous Order created: #${orderNumber} for ${cName} (${cPhone}) - ৳${total}`);
 
     return {
       success: true,
@@ -217,8 +238,11 @@ export async function executeOrderCreation(params: {
     };
   } catch (err: any) {
     await client.query('ROLLBACK');
-    console.error('Order creation error in agentic skill:', err);
-    return { success: false, error: err.message };
+    console.error('Order creation transaction failed:', err);
+    return {
+      success: false,
+      error: err.message,
+    };
   } finally {
     client.release();
   }

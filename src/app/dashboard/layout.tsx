@@ -26,6 +26,9 @@ import {
   PanelLeftOpen,
   Settings,
   Film,
+  ShieldAlert,
+  CreditCard,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { useAppDispatch, useAppSelector } from '@/lib/store/hooks';
@@ -203,6 +206,11 @@ export default function DashboardLayout({
       href: '/dashboard/comments',
       icon: <Film className="w-5 h-5 text-sky-400" />,
     },
+    {
+      name: 'রিঅ্যাক্ট ও বট শিল্ড',
+      href: '/dashboard/reactions',
+      icon: <ShieldAlert className="w-5 h-5 text-rose-400" />,
+    },
     ...(isSuperAdmin
       ? [
           {
@@ -241,6 +249,11 @@ export default function DashboardLayout({
       name: 'Live Inbox & Takeover',
       href: '/dashboard/inbox',
       icon: <MessageSquare className="w-5 h-5" />,
+    },
+    {
+      name: 'বিলিং ও সাবস্ক্রিপশন',
+      href: '/dashboard/billing',
+      icon: <CreditCard className="w-5 h-5 text-emerald-400" />,
     },
     {
       name: 'প্রোফাইল ও সেটিংস',
@@ -510,6 +523,34 @@ export default function DashboardLayout({
             )}
           </div>
         </header>
+
+        {/* Top Subscription & Grace Period Alert Banner */}
+        {subInfo &&
+          (subInfo.status === 'past_due' ||
+            subInfo.status === 'suspended' ||
+            subInfo.status === 'expired' ||
+            (subInfo.daysRemaining !== undefined && subInfo.daysRemaining <= 2)) && (
+            <div className="bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 text-white px-4 py-2.5 text-xs font-bold flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0 shadow-md">
+              <div className="flex items-center gap-2 text-center sm:text-left">
+                <AlertTriangle className="w-4 h-4 text-white shrink-0 animate-bounce" />
+                <span>
+                  {subInfo.status === 'suspended'
+                    ? '⛔ বিল পরিশোধ না করায় আপনার এআই সেলস সার্ভিস সাময়িকভাবে স্থগিত রয়েছে।'
+                    : subInfo.status === 'past_due'
+                    ? `⚠️ আপনার প্যাকেজের মেয়াদ শেষ হয়েছে। ৩ দিনের গ্রেস পিরিয়ড চলছে (${subInfo.daysRemaining || 1} দিন বাকি)।`
+                    : subInfo.status === 'expired'
+                    ? '⛔ আপনার ৭ দিনের ফ্রি ট্রায়াল শেষ হয়েছে। সার্ভিস সচল রাখতে একটি প্যাকেজ বেছে নিন।'
+                    : `⏳ আপনার চলতি প্যাকেজের মেয়াদ শেষ হতে মাত্র ${subInfo.daysRemaining} দিন বাকি।`}
+                </span>
+              </div>
+              <Link
+                href="/dashboard/billing"
+                className="px-3 py-1 rounded-lg bg-white text-slate-900 font-extrabold hover:bg-slate-100 transition-colors shrink-0 text-[11px] shadow-sm"
+              >
+                এখনই প্যাকেজ রিনিউ বা আপগ্রেড করুন 💳
+              </Link>
+            </div>
+          )}
 
         {/* Page Content Viewport */}
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto w-full">

@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Fetch latest posts from Facebook Graph API
-    const postsUrl = `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,story,created_time,full_picture,permalink_url,attachments{media_type,url,media}&limit=50&access_token=${pageToken}`;
+    // 2. Fetch latest posts from Facebook Graph API (including live reaction counts)
+    const postsUrl = `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,story,created_time,full_picture,permalink_url,attachments{media_type,url,media},reactions.type(LIKE).summary(total_count).as(like),reactions.type(LOVE).summary(total_count).as(love),reactions.type(CARE).summary(total_count).as(care),reactions.type(HAHA).summary(total_count).as(haha),reactions.type(WOW).summary(total_count).as(wow),reactions.type(SAD).summary(total_count).as(sad),reactions.type(ANGRY).summary(total_count).as(angry)&limit=50&access_token=${pageToken}`;
     const postsRes = await fetch(postsUrl);
     const postsData = await postsRes.json();
 
@@ -143,17 +143,40 @@ export async function POST(req: NextRequest) {
       }
       const createdTime = post.created_time ? new Date(post.created_time) : new Date();
 
+      const likeCount = post.like?.summary?.total_count || 0;
+      const loveCount = post.love?.summary?.total_count || 0;
+      const careCount = post.care?.summary?.total_count || 0;
+      const hahaCount = post.haha?.summary?.total_count || 0;
+      const wowCount = post.wow?.summary?.total_count || 0;
+      const sadCount = post.sad?.summary?.total_count || 0;
+      const angryCount = post.angry?.summary?.total_count || 0;
+      const totalCount =
+        likeCount + loveCount + careCount + hahaCount + wowCount + sadCount + angryCount;
+
+      const reactionSummary = {
+        total: totalCount,
+        like: likeCount,
+        love: loveCount,
+        care: careCount,
+        haha: hahaCount,
+        wow: wowCount,
+        sad: sadCount,
+        angry: angryCount,
+      };
+
       await query(
-        `INSERT INTO facebook_posts (tenant_id, channel_id, post_id, message, media_url, permalink_url, created_time, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        `INSERT INTO facebook_posts (tenant_id, channel_id, post_id, message, media_url, permalink_url, created_time, reaction_summary, last_reaction_sync, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
          ON CONFLICT (tenant_id, post_id)
          DO UPDATE SET 
            message = COALESCE(NULLIF(EXCLUDED.message, ''), facebook_posts.message),
            media_url = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
            permalink_url = COALESCE(EXCLUDED.permalink_url, facebook_posts.permalink_url),
            created_time = EXCLUDED.created_time,
+           reaction_summary = EXCLUDED.reaction_summary,
+           last_reaction_sync = NOW(),
            updated_at = NOW();`,
-        [auth.tenantId, channel.id, postId, message, mediaUrl, permalinkUrl, createdTime]
+        [auth.tenantId, channel.id, postId, message, mediaUrl, permalinkUrl, createdTime, JSON.stringify(reactionSummary)]
       );
       syncedCount++;
     }

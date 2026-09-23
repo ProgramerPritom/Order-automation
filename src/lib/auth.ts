@@ -30,13 +30,13 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 /**
- * Generate Access Token (30 days persistent login session without unexpected logouts)
+ * Generate Access Token (1 hour lifespan for enhanced security, refreshed seamlessly via refresh token)
  */
 export async function createAccessToken(payload: TokenPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('30d')
+    .setExpirationTime('1h')
     .sign(secretKey);
 }
 

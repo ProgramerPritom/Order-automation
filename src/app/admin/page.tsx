@@ -18,6 +18,9 @@ import {
   Check,
   Trash2,
   AlertTriangle,
+  CreditCard,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 
 import { getSessionToken } from '@/lib/session';
@@ -146,12 +149,59 @@ export default function SuperAdminPage() {
       setHasMore(Boolean(data.pagination?.hasMore));
       setTotalCount(data.pagination?.totalCount || 0);
       setError(null);
+
+      // Fetch pending invoice submissions
+      fetchPendingInvoices();
     } catch (err: any) {
       setError(err.message);
       toast.error(err.message || 'ডাটা লোড করা যায়নি');
     } finally {
       setLoading(false);
       setIsPaginating(false);
+    }
+  };
+
+  const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
+  const [approvingInvId, setApprovingInvId] = useState<string | null>(null);
+
+  const fetchPendingInvoices = async () => {
+    const token = getSessionToken();
+    try {
+      const res = await fetch('/api/admin/invoices', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.invoices) {
+        setPendingInvoices(data.invoices.filter((i: any) => i.status === 'pending_approval'));
+      }
+    } catch (e) {}
+  };
+
+  const handleInvoiceApproval = async (invoiceId: string, action: 'approve' | 'reject') => {
+    setApprovingInvId(invoiceId);
+    const token = getSessionToken();
+    try {
+      const res = await fetch('/api/admin/invoices/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invoiceId, action }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message);
+        fetchPendingInvoices();
+        const currentCursor = cursorStack[currentPage - 1] ?? null;
+        fetchAdminData(currentCursor, true);
+      } else {
+        toast.error(data.error || 'অ্যাকশন সম্পন্ন করা যায়নি');
+      }
+    } catch (e: any) {
+      toast.error('অনুমোদনে ত্রুটি');
+    } finally {
+      setApprovingInvId(null);
     }
   };
 
@@ -504,6 +554,83 @@ export default function SuperAdminPage() {
           )}
         </div>
       </div>
+
+      {/* Pending MFS / Manual Payment Submissions Section */}
+      {pendingInvoices.length > 0 && (
+        <div className="rounded-2xl bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border-2 border-indigo-500/50 shadow-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-indigo-500/20 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              <h3 className="font-black text-sm text-white flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-indigo-400" />
+                <span>পেন্ডিং পেমেন্ট অনুমোদন (Pending MFS Verification)</span>
+              </h3>
+            </div>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              {pendingInvoices.length}টি পেন্ডিং রিকোয়েস্ট
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pendingInvoices.map((inv) => (
+              <div
+                key={inv.id}
+                className="p-4 rounded-xl bg-slate-900/90 border border-slate-700 space-y-3 flex flex-col justify-between"
+              >
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-extrabold text-white text-sm">{inv.tenant_name || 'Merchant Shop'}</p>
+                      <p className="text-[11px] text-slate-400 font-mono">{inv.invoice_number}</p>
+                    </div>
+                    <span className="font-black text-indigo-400 text-sm">
+                      ৳{Number(inv.amount).toLocaleString('bn-BD')}
+                    </span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800 space-y-1 text-[11px]">
+                    <p className="text-slate-300 flex justify-between">
+                      <span className="text-slate-500">প্যাকেজ:</span>
+                      <span className="font-bold text-white uppercase">{inv.plan} Plan</span>
+                    </p>
+                    <p className="text-slate-300 flex justify-between">
+                      <span className="text-slate-500">মেথড / প্রেরক:</span>
+                      <span className="font-mono font-bold text-amber-400">
+                        {inv.payment_method} ({inv.sender_number || 'N/A'})
+                      </span>
+                    </p>
+                    <p className="text-slate-300 flex justify-between">
+                      <span className="text-slate-500">TrxID:</span>
+                      <span className="font-mono font-black text-emerald-400 select-all">
+                        {inv.transaction_id || 'N/A'}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800 flex gap-2">
+                  <button
+                    onClick={() => handleInvoiceApproval(inv.id, 'approve')}
+                    disabled={approvingInvId === inv.id}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{approvingInvId === inv.id ? 'এপ্রুভ হচ্ছে...' : 'এপ্রুভ ও অ্যাক্টিভ'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleInvoiceApproval(inv.id, 'reject')}
+                    disabled={approvingInvId === inv.id}
+                    className="px-3 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs border border-rose-500/30 transition-all"
+                  >
+                    রিজেক্ট
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main Merchants Table */}
       <div className="rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden">

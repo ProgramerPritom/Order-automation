@@ -19,7 +19,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/login?error=session_expired', req.url));
   }
 
-  const appId = process.env.META_APP_ID || '1088885870322128';
+  const appId =
+    process.env.META_WHATSAPP_APP_ID ||
+    process.env.WHATSAPP_APP_ID ||
+    process.env.META_APP_ID ||
+    '1104583752103042';
 
   // Dynamically resolve active origin (port 3000, 3001, dev tunnel, etc.)
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3001';

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { verifyAccessToken } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -41,15 +42,17 @@ export async function GET(req: NextRequest) {
     'pages_manage_posts',
   ].join(',');
 
-  // Encode tenantId, returnOrigin, and redirectUri in state parameter
-  const state = Buffer.from(
-    JSON.stringify({
-      tenantId: auth.tenantId,
-      returnOrigin: requestOrigin,
-      redirectUri,
-      time: Date.now(),
-    })
-  ).toString('base64');
+  // Encode tenantId, returnOrigin, and redirectUri in signed state parameter
+  const rawState = JSON.stringify({
+    tenantId: auth.tenantId,
+    returnOrigin: requestOrigin,
+    redirectUri,
+    time: Date.now(),
+  });
+  const b64State = Buffer.from(rawState).toString('base64url');
+  const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_saas_default_2026';
+  const stateSig = crypto.createHmac('sha256', secret).update(b64State).digest('base64url');
+  const state = `${b64State}.${stateSig}`;
 
   const fbAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
     redirectUri
